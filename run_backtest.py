@@ -33,6 +33,7 @@ OBJECTIVE_FUNCTIONS = {
 }
 
 
+# Add to run_backtest.py in the main function
 def main():
     """Main function."""
     # Parse command-line arguments
@@ -40,27 +41,52 @@ def main():
     parser.add_argument('--config', type=str, default='config.yaml', help='Path to configuration file.')
     parser.add_argument('--strategy', type=str, required=True, help='Strategy to backtest.')
     parser.add_argument('--data', type=str, help='Path to data file (overrides config).')
+    parser.add_argument('--mes-data', action='store_true', help='Indicate that the data is MES futures format.')
     parser.add_argument('--steps', type=str, default='1,2,3,4', help='Validation steps to run (comma-separated, e.g., 1,2,3,4).')
+    parser.add_argument('--train_start', type=str, help='Start date for training period (YYYY-MM-DD).')
+    parser.add_argument('--train_end', type=str, help='End date for training period (YYYY-MM-DD).')
     args = parser.parse_args()
-    
+
+
     # Load configuration
     config = Config.load_yaml(args.config)
-    
+    # Override config values with command-line arguments if provided
+    if args.train_start:
+        config['validation']['insample']['train_start'] = args.train_start
+    if args.train_end:
+        config['validation']['insample']['train_end'] = args.train_end
+
     # Parse validation steps
     steps = [int(step) for step in args.steps.split(',')]
-    
+
     # Get data filepath
     data_filepath = args.data if args.data else config['data']['filepath']
-    
+
     # Load data
     data_loader = DataLoader()
-    data = data_loader.load_csv(
-        data_filepath,
-        date_column=config['data']['date_column'],
-        datetime_format=config['data']['datetime_format']
-    )
-    
-    print(f"Loaded data: {len(data)} rows from {data.index[0]} to {data.index[-1]}")
+
+    # Check data type from config
+    data_type = config['data'].get('data_type', 'standard')
+    if args.mes_data or data_type == 'mes_futures' or 'U19_H25' in data_filepath:
+        try:
+            data = data_loader.load_mes_futures(data_filepath)
+            print(f"Loaded MES futures data: {len(data)} rows from {data.index[0]} to {data.index[-1]}")
+        except AttributeError:
+            # Fallback if method not available
+            print("Warning: load_mes_futures method not found, using standard data loader.")
+            data = data_loader.load_csv(
+                data_filepath,
+                date_column='datetime',
+                datetime_format=None
+            )
+            print(f"Loaded data with standard loader: {len(data)} rows from {data.index[0]} to {data.index[-1]}")
+    else:
+        data = data_loader.load_csv(
+            data_filepath,
+            date_column=config['data']['date_column'],
+            datetime_format=config['data']['datetime_format']
+        )
+        print(f"Loaded standard data: {len(data)} rows from {data.index[0]} to {data.index[-1]}")
     
     # Get strategy configuration
     strategy_config = Config.get_strategy_config(config, args.strategy)

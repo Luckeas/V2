@@ -98,3 +98,34 @@ class DataLoader:
                 result[year] = year_data
         
         return result
+
+    @staticmethod
+    def load_mes_futures(filepath: str) -> pd.DataFrame:
+        """
+        Load MES futures data from a CSV file.
+
+        Args:
+            filepath (str): Path to the CSV file (U19_H25.csv).
+
+        Returns:
+            pd.DataFrame: DataFrame with market data.
+        """
+        # Load the CSV file
+        df = pd.read_csv(filepath)
+
+        # Convert 'datetime' column to pandas datetime
+        df['datetime'] = pd.to_datetime(df['datetime'])
+
+        # Set datetime as index
+        df.set_index('datetime', inplace=True)
+
+        # Ensure all required columns are present
+        required_columns = ['open', 'high', 'low', 'close']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            raise ValueError(f"Missing columns in data: {missing_columns}")
+
+        # Ensure columns are lowercase
+        df.columns = [col.lower() for col in df.columns]
+
+        return df
