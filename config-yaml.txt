@@ -1,0 +1,71 @@
+# Backtesting Configuration
+
+# Data settings
+data:
+  filepath: "data/btc_hourly.csv"
+  date_column: "timestamp"
+  datetime_format: null  # Use null for auto-detection
+  
+# Validation settings
+validation:
+  # In-sample optimization
+  insample:
+    train_start: "2016-01-01"
+    train_end: "2019-12-31"
+    objective_function: "profit_factor"  # Options: profit_factor, sharpe_ratio, calmar_ratio
+  
+  # In-sample permutation test
+  insample_test:
+    n_permutations: 1000
+    show_plot: true
+  
+  # Walk-forward optimization
+  walkforward:
+    train_window: "4Y"  # Training window (can be bars or time offset like "4Y", "12M", etc.)
+    train_interval: "30D"  # Retraining interval (can be bars or time offset)
+    show_optimization_progress: true
+  
+  # Walk-forward permutation test
+  walkforward_test:
+    train_data_start: "2016-01-01"
+    train_data_end: "2019-12-31"
+    test_data_start: "2020-01-01"
+    test_data_end: "2020-12-31"
+    n_permutations: 200
+    show_plot: true
+
+# Strategy settings
+strategies:
+  donchian_breakout:
+    description: "Donchian Channel Breakout strategy"
+    default_params:
+      lookback: 20
+    parameter_grid:
+      lookback:
+        range:
+          start: 10
+          end: 100
+          step: 5
+  
+  moving_average_crossover:
+    description: "Moving Average Crossover strategy"
+    default_params:
+      fast_period: 10
+      slow_period: 50
+    parameter_grid:
+      fast_period:
+        range:
+          start: 5
+          end: 50
+          step: 5
+      slow_period:
+        range:
+          start: 20
+          end: 200
+          step: 10
+
+# Output settings
+output:
+  save_results: true
+  results_dir: "results"
+  plot_results: true

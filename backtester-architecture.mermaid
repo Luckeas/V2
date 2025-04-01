@@ -1,0 +1,21 @@
+flowchart TD
+    A[Data Loader] --> B[Backtester Engine]
+    B --> C{Strategy Factory}
+    C --> D[Strategy 1\nDonchian Breakout]
+    C --> E[Strategy 2\nMA Crossover]
+    C --> F[Strategy N...]
+    
+    B --> G[Validator]
+    G --> H[In-Sample\nOptimizer]
+    G --> I[In-Sample\nPermutation Test]
+    G --> J[Walk-Forward\nTesting]
+    G --> K[Walk-Forward\nPermutation Test]
+    
+    B --> L[Performance Metrics]
+    L --> M[Profit Factor]
+    L --> N[Sharpe Ratio]
+    L --> O[Other Metrics...]
+    
+    P[Config] --> B
+    
+    B --> Q[Results Visualizer]
