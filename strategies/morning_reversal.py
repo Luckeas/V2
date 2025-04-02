@@ -3,6 +3,9 @@ import numpy as np
 import time
 from typing import Dict, Any, Tuple, List, Optional
 from itertools import product
+import sys
+import time
+import numpy as np
 
 from strategies.base import Strategy
 from utils.candlestick_patterns import CandlestickPatternDetector
@@ -191,71 +194,70 @@ class MorningReversal(Strategy):
 
         levels = {}
 
+        # Determine if we should log levels (avoid excessive logging)
+        should_log = (not hasattr(self, '_levels_logged') or not self._levels_logged)
+
         if isinstance(data.index, pd.DatetimeIndex):
-            # Get current date from the most recent data point
-            if len(data) > 0:
-                latest_date = data.index[-1].date()
+            try:
+                # Get current date from the most recent data point
+                if len(data) > 0:
+                    latest_date = data.index[-1].date()
 
-                # Find previous trading day's data
-                prev_day_data = data[data.index.date < latest_date]
+                    # Find previous trading day's data
+                    prev_day_data = data[data.index.date < latest_date]
 
-                if len(prev_day_data) > 0:
-                    # Get the most recent previous day
-                    prev_date = prev_day_data.index[-1].date()
+                    if len(prev_day_data) > 0:
+                        # Get the most recent previous day
+                        prev_date = prev_day_data.index[-1].date()
 
-                    # Filter data for the previous day
-                    prev_day_full = prev_day_data[prev_day_data.index.date == prev_date]
+                        # Filter data for the previous day
+                        prev_day_full = prev_day_data[prev_day_data.index.date == prev_date]
 
-                    if len(prev_day_full) > 0:
-                        # Regular Trading Hours typically 9:30 AM to 4:00 PM ET for US markets
-                        # For MES futures, regular session is typically 9:30 AM to 4:15 PM ET
-                        rth_mask = ((prev_day_full.index.hour > 9) |
-                                    ((prev_day_full.index.hour == 9) & (prev_day_full.index.minute >= 30))) & \
-                                   ((prev_day_full.index.hour < 16) |
-                                    ((prev_day_full.index.hour == 16) & (prev_day_full.index.minute <= 15)))
+                        if len(prev_day_full) > 0:
+                            # Regular Trading Hours mask for MES futures
+                            # Typically 9:30 AM to 4:15 PM ET
+                            rth_mask = (
+                                    ((prev_day_full.index.hour > 9) |
+                                     ((prev_day_full.index.hour == 9) & (prev_day_full.index.minute >= 30))) &
+                                    ((prev_day_full.index.hour < 16) |
+                                     ((prev_day_full.index.hour == 16) & (prev_day_full.index.minute <= 15)))
+                            )
 
-                        # Get regular trading hours data
-                        rth_data = prev_day_full[rth_mask]
+                            # Get regular trading hours data
+                            rth_data = prev_day_full[rth_mask]
 
-                        # Get extended trading hours data (everything else from that day)
-                        eth_data = prev_day_full[~rth_mask]
+                            # Get extended trading hours data (everything else from that day)
+                            eth_data = prev_day_full[~rth_mask]
 
-                        # Add previous day's RTH high and low
-                        if len(rth_data) > 0:
-                            levels['prev_day_high'] = rth_data['high'].max()
-                            levels['prev_day_low'] = rth_data['low'].min()
+                            # Add previous day's RTH high and low
+                            if len(rth_data) > 0:
+                                levels['prev_day_high'] = rth_data['high'].max()
+                                levels['prev_day_low'] = rth_data['low'].min()
 
-                        # Add post-hours (ETH) high and low
-                        if len(eth_data) > 0:
-                            levels['post_hours_high'] = eth_data['high'].max()
-                            levels['post_hours_low'] = eth_data['low'].min()
+                            # Add post-hours (ETH) high and low
+                            if len(eth_data) > 0:
+                                levels['post_hours_high'] = eth_data['high'].max()
+                                levels['post_hours_low'] = eth_data['low'].min()
 
-                        # Only log once to avoid repeated messages
-                        if not self._levels_already_logged:
-                            print(
-                                f"Previous day RTH levels - High: {levels.get('prev_day_high', 'N/A')}, Low: {levels.get('prev_day_low', 'N/A')}")
-                            print(
-                                f"Previous day ETH levels - High: {levels.get('post_hours_high', 'N/A')}, Low: {levels.get('post_hours_low', 'N/A')}")
-                            self._levels_already_logged = True
+                            # Log levels only once and only if data is found
+                            if should_log:
+                                print(
+                                    f"Previous day RTH levels - High: {levels.get('prev_day_high', 'N/A')}, Low: {levels.get('prev_day_low', 'N/A')}")
+                                print(
+                                    f"Previous day ETH levels - High: {levels.get('post_hours_high', 'N/A')}, Low: {levels.get('post_hours_low', 'N/A')}")
 
-            # If we couldn't get the specific levels, fall back to daily resampling
-            if not levels:
-                print("Using daily resampling fallback for key levels...")
-                daily_data = data.resample('D').agg({
-                    'open': 'first',
-                    'high': 'max',
-                    'low': 'min',
-                    'close': 'last'
-                }).dropna()
+                                # Set flag to prevent repeated logging
+                                self._levels_logged = True
 
-                if len(daily_data) > 1:
-                    # Get previous day's high and low
-                    prev_day = daily_data.iloc[-2]
-                    levels['prev_day_high'] = prev_day['high']
-                    levels['prev_day_low'] = prev_day['low']
-        else:
-            # If no datetime information, use simple approach
-            # Use highest high and lowest low from first 20% of data as key levels
+            except Exception as e:
+                print(f"Error calculating key levels: {e}")
+                # Fallback to a simple method if complex calculation fails
+                first_section = data.iloc[:int(len(data) * 0.2)]
+                levels['prev_day_high'] = first_section['high'].max()
+                levels['prev_day_low'] = first_section['low'].min()
+
+        # If no levels found or not a datetime index, use fallback method
+        if not levels:
             first_section = data.iloc[:int(len(data) * 0.2)]
             levels['prev_day_high'] = first_section['high'].max()
             levels['prev_day_low'] = first_section['low'].min()
@@ -310,161 +312,229 @@ class MorningReversal(Strategy):
         return df
 
     def generate_signals(self, data: pd.DataFrame, parameters: Dict[str, Any] = None) -> np.ndarray:
-        """
-        Generate trading signals based on Bollinger Bands, VWAP, and candlestick patterns.
+        # Debug print to show which parameters are being used
+        print("\n--- Generating Signals ---")
+        print("Input Parameters:")
+        for key, value in parameters.items():
+            print(f"{key}: {value}")
 
-        Args:
-            data (pd.DataFrame): Market data with OHLC prices.
-            parameters (Dict[str, Any], optional): Strategy parameters. Defaults to None.
-
-        Returns:
-            np.ndarray: Array of position signals (1 for long, 0 for flat, -1 for short).
-        """
+        # Update parameters
         if parameters is not None:
-            # If parameters change, clear caches
-            if parameters != self.parameters:
-                self._indicator_cache = {}
-                self._pattern_cache = {}
-                self._key_levels_cache = None
-                self._levels_already_logged = False
-
             self.parameters.update(parameters)
 
-        # Add indicators
-        df = self._add_indicators(data)
+        # Debug: Check if parameters were actually updated
+        print("\nCurrent Strategy Parameters:")
+        for key, value in self.parameters.items():
+            print(f"{key}: {value}")
 
-        # Get key levels (only once)
-        key_levels = self._get_key_levels(data)
+        # Add more comprehensive indicators with detailed logging
+        try:
+            print("\nAdding Indicators...")
+            df = self._add_indicators(data)
 
-        # Detect candlestick patterns
-        df = self._detect_candlestick_patterns(df)
+            print("\nDetecting Candlestick Patterns...")
+            df = self._detect_candlestick_patterns(df)
+        except Exception as e:
+            print(f"Error adding indicators or detecting patterns: {e}")
+            import traceback
+            traceback.print_exc()
+            return np.zeros(len(data))
 
         # Initialize signals array
         signals = np.zeros(len(df))
 
-        # Generate entry signals
-        for i in range(max(self.parameters['bb_period'], self.parameters['atr_period']) + 1, len(df)):
-            # Skip if not in morning session
-            if not df['morning_session'].iloc[i]:
-                continue
+        # Diagnostic logging for conditions
+        condition_logs = []
 
-            # Check for long entry conditions
-            if (df['close'].iloc[i] < df['bb_lower'].iloc[i] and
-                    df['close'].iloc[i] < df['vwap'].iloc[i] and
-                    df['open'].iloc[i] < df['vwap'].iloc[i] and
-                    df['bullish_pattern'].iloc[i] == 1 and
-                    # RSI filter - ensure RSI is in oversold territory for long entries
-                    df['rsi'].iloc[i] <= self.parameters['rsi_oversold'] and
-                    # ATR filter - ensure volatility is within acceptable range
-                    df['atr_ratio'].iloc[i] >= self.parameters['atr_min_threshold'] and
-                    df['atr_ratio'].iloc[i] <= self.parameters['atr_max_threshold']):
-                signals[i] = 1  # Long signal
+        print("\nGenerating Signals...")
+        try:
+            for i in range(max(self.parameters['bb_period'], self.parameters['atr_period']) + 1, len(df)):
+                # Comprehensive long entry condition diagnostic
+                long_conditions = {
+                    'below_lower_band': df['close'].iloc[i] < df['bb_lower'].iloc[i],
+                    'below_vwap': df['close'].iloc[i] < df['vwap'].iloc[i],
+                    'bullish_pattern_detected': df['bullish_pattern'].iloc[i] == 1,
+                    'rsi_oversold': df['rsi'].iloc[i] <= self.parameters['rsi_oversold'],
+                    'atr_in_range': (self.parameters['atr_min_threshold'] <= df['atr_ratio'].iloc[i] <=
+                                     self.parameters['atr_max_threshold']),
+                    'bullish_candle': df['close'].iloc[i] > df['open'].iloc[i],
+                    'time_details': {
+                        'hour': df.index[i].hour if hasattr(df.index, 'hour') else 'N/A',
+                        'minute': df.index[i].minute if hasattr(df.index, 'minute') else 'N/A'
+                    }
+                }
 
-            # Check for short entry conditions
-            elif (df['close'].iloc[i] > df['bb_upper'].iloc[i] and
-                  df['close'].iloc[i] > df['vwap'].iloc[i] and
-                  df['open'].iloc[i] > df['vwap'].iloc[i] and
-                  df['bearish_pattern'].iloc[i] == 1 and
-                  # RSI filter - ensure RSI is in overbought territory for short entries
-                  df['rsi'].iloc[i] >= self.parameters['rsi_overbought'] and
-                  # ATR filter - ensure volatility is within acceptable range
-                  df['atr_ratio'].iloc[i] >= self.parameters['atr_min_threshold'] and
-                  df['atr_ratio'].iloc[i] <= self.parameters['atr_max_threshold']):
-                signals[i] = -1  # Short signal
+                # Similar detailed short conditions
+                short_conditions = {
+                    'above_upper_band': df['close'].iloc[i] > df['bb_upper'].iloc[i],
+                    'above_vwap': df['close'].iloc[i] > df['vwap'].iloc[i],
+                    'bearish_pattern_detected': df['bearish_pattern'].iloc[i] == 1,
+                    'rsi_overbought': df['rsi'].iloc[i] >= self.parameters['rsi_overbought'],
+                    'atr_in_range': (self.parameters['atr_min_threshold'] <= df['atr_ratio'].iloc[i] <=
+                                     self.parameters['atr_max_threshold']),
+                    'bearish_candle': df['close'].iloc[i] < df['open'].iloc[i],
+                    'time_details': {
+                        'hour': df.index[i].hour if hasattr(df.index, 'hour') else 'N/A',
+                        'minute': df.index[i].minute if hasattr(df.index, 'minute') else 'N/A'
+                    }
+                }
 
-        return signals
+                # Count met conditions
+                long_met_conditions = sum(1 for v in long_conditions.values() if isinstance(v, bool) and v)
+                short_met_conditions = sum(1 for v in short_conditions.values() if isinstance(v, bool) and v)
+
+                # Signal generation with comprehensive logging
+                if long_met_conditions >= 4:
+                    signals[i] = 1
+                    condition_logs.append(('LONG', long_conditions))
+                elif short_met_conditions >= 4:
+                    signals[i] = -1
+                    condition_logs.append(('SHORT', short_conditions))
+
+            # Print detailed condition logs
+            print("\nSignal Generation Diagnostic:")
+            for signal_type, conditions in condition_logs:
+                print(f"\n{signal_type} Signal:")
+                for key, value in conditions.items():
+                    if key != 'time_details':
+                        print(f"  {key}: {value}")
+
+            print(f"\nTotal Signals Generated: {np.sum(signals != 0)}")
+            return signals
+
+        except Exception as e:
+            print(f"Error during signal generation: {e}")
+            import traceback
+            traceback.print_exc()
+            return np.zeros(len(data))
 
     def optimize(self, data: pd.DataFrame, objective_func: callable,
                  parameter_grid: Dict[str, List[Any]]) -> Tuple[Dict[str, Any], float]:
-        """
-        Optimize strategy parameters based on the provided data and objective function.
+        import time
+        import sys
+        import numpy as np
+        from itertools import product
 
-        Args:
-            data (pd.DataFrame): Market data with OHLC prices.
-            objective_func (callable): Function to maximize/minimize during optimization.
-            parameter_grid (Dict[str, List[Any]]): Grid of parameters to search.
+        print("\nStarting Detailed Optimization Diagnostics")
+        print("-" * 40)
 
-        Returns:
-            Tuple[Dict[str, Any], float]: Best parameters and the corresponding objective value.
-        """
-        best_value = -np.inf if objective_func.__name__ != "drawdown" else np.inf
-        best_params = {}
+        # Debug: Print the parameter_grid to ensure it's not empty
+        print("\nFull Parameter Grid:")
+        print(parameter_grid)
 
-        # Clear caches before optimization
-        self._indicator_cache = {}
-        self._pattern_cache = {}
-        self._key_levels_cache = None
-        self._levels_already_logged = False
+        # Explicitly print out the parameter grid to verify
+        print("\nParameter Grid Details:")
+        grid_details = {
+            'bb_period': parameter_grid.get("bb_period", [20]),
+            'bb_std': parameter_grid.get("bb_std", [2.0]),
+            'atr_period': parameter_grid.get("atr_period", [14]),
+            'stop_atr_multiplier': parameter_grid.get("stop_atr_multiplier", [1.5]),
+            'rsi_oversold': parameter_grid.get("rsi_oversold", [30]),
+            'rsi_overbought': parameter_grid.get("rsi_overbought", [70]),
+            'atr_min_threshold': parameter_grid.get("atr_min_threshold", [0.8]),
+            'atr_max_threshold': parameter_grid.get("atr_max_threshold", [2.0])
+        }
 
-        # Extract parameter lists from grid
-        bb_periods = parameter_grid.get("bb_period", [self.parameters["bb_period"]])
-        bb_stds = parameter_grid.get("bb_std", [self.parameters["bb_std"]])
-        atr_periods = parameter_grid.get("atr_period", [self.parameters["atr_period"]])
-        stop_multipliers = parameter_grid.get("stop_atr_multiplier", [self.parameters["stop_atr_multiplier"]])
-        rsi_oversolds = parameter_grid.get("rsi_oversold", [self.parameters["rsi_oversold"]])
-        rsi_overboughts = parameter_grid.get("rsi_overbought", [self.parameters["rsi_overbought"]])
-        atr_min_thresholds = parameter_grid.get("atr_min_threshold", [self.parameters["atr_min_threshold"]])
-        atr_max_thresholds = parameter_grid.get("atr_max_threshold", [self.parameters["atr_max_threshold"]])
+        for key, values in grid_details.items():
+            print(f"{key}: {values}")
+
+        # Validate parameter grid
+        for key, values in grid_details.items():
+            if not values:
+                print(f"WARNING: No values for {key}. Using default.")
+                grid_details[key] = [self.parameters.get(key, 20)]  # Provide a default
 
         # Calculate total parameter combinations
-        total_combinations = (
-                len(bb_periods) * len(bb_stds) * len(atr_periods) * len(stop_multipliers) *
-                len(rsi_oversolds) * len(rsi_overboughts) * len(atr_min_thresholds) * len(atr_max_thresholds)
-        )
+        total_combinations = 1
+        for values in grid_details.values():
+            total_combinations *= len(values)
 
-        print(f"Starting optimization with {total_combinations} parameter combinations")
+        print(f"\nTotal parameter combinations to test: {total_combinations}")
+
+        # Initialize timing and tracking variables
         start_time = time.time()
         current_combo = 0
+        best_value = -np.inf if objective_func.__name__ != "drawdown" else np.inf
+        best_params = None
 
-        # Iterate through all parameter combinations
-        for bb_period, bb_std in product(bb_periods, bb_stds):
-            for atr_period, stop_multiplier in product(atr_periods, stop_multipliers):
-                for rsi_oversold, rsi_overbought in product(rsi_oversolds, rsi_overboughts):
-                    for atr_min, atr_max in product(atr_min_thresholds, atr_max_thresholds):
-                        # Skip invalid combinations
-                        if (bb_period <= 0 or bb_std <= 0 or atr_period <= 0 or stop_multiplier <= 0 or
-                                rsi_oversold >= rsi_overbought or atr_min >= atr_max):
-                            continue
+        # Print a header for detailed tracking
+        print("\n{:<10} {:<20} {:<15} {:<15}".format("Progress", "Parameters", "Objective", "Elapsed Time"))
+        print("-" * 60)
 
-                        current_combo += 1
-                        if current_combo % 10 == 0:  # Report progress every 10 combinations
-                            elapsed = time.time() - start_time
-                            eta = (elapsed / current_combo) * (total_combinations - current_combo)
-                            print(
-                                f"Testing combination {current_combo}/{total_combinations} - Elapsed: {elapsed:.1f}s, ETA: {eta:.1f}s")
+        # Nested loops for parameter combinations
+        try:
+            for bb_period in grid_details['bb_period']:
+                for bb_std in grid_details['bb_std']:
+                    for atr_period in grid_details['atr_period']:
+                        for stop_multiplier in grid_details['stop_atr_multiplier']:
+                            for rsi_oversold in grid_details['rsi_oversold']:
+                                for rsi_overbought in grid_details['rsi_overbought']:
+                                    for atr_min in grid_details['atr_min_threshold']:
+                                        for atr_max in grid_details['atr_max_threshold']:
+                                            # Debug: Print current combination
+                                            print(f"\nCurrent Combination: \n{bb_period}, {bb_std}, {atr_period}, "
+                                                  f"{stop_multiplier}, {rsi_oversold}, {rsi_overbought}, "
+                                                  f"{atr_min}, {atr_max}")
 
-                        params = {
-                            "bb_period": bb_period,
-                            "bb_std": bb_std,
-                            "atr_period": atr_period,
-                            "stop_atr_multiplier": stop_multiplier,
-                            "rsi_oversold": rsi_oversold,
-                            "rsi_overbought": rsi_overbought,
-                            "atr_min_threshold": atr_min,
-                            "atr_max_threshold": atr_max
-                        }
+                                            # Skip invalid combinations
+                                            if (bb_period <= 0 or bb_std <= 0 or atr_period <= 0 or
+                                                    stop_multiplier <= 0 or rsi_oversold >= rsi_overbought or
+                                                    atr_min >= atr_max):
+                                                print("Skipping invalid combination")
+                                                continue
 
-                        # Generate signals with current parameters
-                        signals = self.generate_signals(data, params)
+                                            current_combo += 1
 
-                        # Calculate returns
-                        returns = self.compute_returns(data, signals)
+                                            # Prepare current parameters
+                                            params = {
+                                                "bb_period": bb_period,
+                                                "bb_std": bb_std,
+                                                "atr_period": atr_period,
+                                                "stop_atr_multiplier": stop_multiplier,
+                                                "rsi_oversold": rsi_oversold,
+                                                "rsi_overbought": rsi_overbought,
+                                                "atr_min_threshold": atr_min,
+                                                "atr_max_threshold": atr_max
+                                            }
 
-                        # Calculate objective function value
-                        value = objective_func(returns)
+                                            # Elapsed time calculation with more precision
+                                            elapsed_time = time.time() - start_time
+                                            progress_percent = (current_combo / total_combinations) * 100
 
-                        # Update best parameters if needed
-                        if (objective_func.__name__ != "drawdown" and value > best_value) or \
-                                (objective_func.__name__ == "drawdown" and value < best_value):
-                            best_value = value
-                            best_params = params.copy()
-                            print(
-                                f"New best {objective_func.__name__}: {best_value:.4f} with parameters: {best_params}")
+                                            # Debug: Print before signal generation
+                                            print("Generating signals...")
 
-        total_time = time.time() - start_time
-        print(f"Optimization completed in {total_time:.1f} seconds")
-        print(f"Best {objective_func.__name__}: {best_value:.4f}")
-        print(f"Best parameters: {best_params}")
+                                            # Generate signals
+                                            signals = self.generate_signals(data, params)
+                                            returns = self.compute_returns(data, signals)
+
+                                            # Calculate objective function value
+                                            value = objective_func(returns)
+
+                                            # Print current combination details
+                                            print("{:<10.2f} {:<20} {:<15.4f} {:<15.2f}".format(
+                                                progress_percent,
+                                                f"BB:{bb_period},{bb_std}",
+                                                value,
+                                                elapsed_time
+                                            ))
+
+                                            # Update best parameters
+                                            if (objective_func.__name__ != "drawdown" and value > best_value) or \
+                                                    (objective_func.__name__ == "drawdown" and value < best_value):
+                                                best_value = value
+                                                best_params = params.copy()
+
+        except Exception as e:
+            print(f"Error during optimization: {e}")
+            import traceback
+            traceback.print_exc()
+
+        # Final results
+        print("\nOptimization Complete")
+        print(f"Best Parameters: {best_params}")
+        print(f"Best {objective_func.__name__}: {best_value}")
+        print(f"Total Optimization Time: {time.time() - start_time:.2f} seconds")
 
         return best_params, best_value
 

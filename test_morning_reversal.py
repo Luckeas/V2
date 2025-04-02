@@ -76,7 +76,7 @@ def main():
     
     # Filter data for 2023 if needed
     start_date = '2023-01-01'
-    end_date = '2023-12-31'
+    end_date = '2023-03-31'
     print(f"Filtering data for period: {start_date} to {end_date}")
     
     filtered_data = data[(data.index >= start_date) & (data.index <= end_date)]

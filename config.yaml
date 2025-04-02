@@ -119,17 +119,17 @@ strategies:
       ]
     reduced_parameter_grid:
       bb_period:
-        values: [ 15, 20, 25 ]  # Reduced from range to specific values
+        values: [ 20]  # Reduced from range to specific values
       bb_std:
-        values: [ 1.5, 2.0, 2.5 ]
+        values: [ 2.0 ]
       atr_period:
         values: [ 14 ]  # Reduced to single value
       stop_atr_multiplier:
         values: [ 1.5 ]  # Reduced to single value
       rsi_oversold:
-        values: [ 30 ]  # Reduced to single value
+        values: [ 35 ]  # Reduced to single value
       rsi_overbought:
-        values: [ 70 ]  # Reduced to single value
+        values: [ 65 ]  # Reduced to single value
       atr_min_threshold:
         values: [ 0.8 ]  # Reduced to single value
       atr_max_threshold:
@@ -144,6 +144,49 @@ strategies:
           'shooting_star',
           'engulfing'
         ]  # Reduced to most important patterns
+
+  enhanced_market_regime:
+    description: "Enhanced Market Regime strategy with Mean Reversion and Trend Following"
+    default_params:
+      rsi_oversold: 35
+      rsi_overbought: 65
+      volume_multiplier: 1.5
+      atr_stop_multiplier: 2.0
+      max_bars_held: 16
+      bb_window: 20
+      trend_rsi_min: 50
+      trend_rsi_max: 70
+      ma_slope_threshold: 0.1
+    parameter_grid:
+      rsi_oversold:
+        range:
+          start: 30
+          end: 40
+          step: 5
+      rsi_overbought:
+        range:
+          start: 60
+          end: 70
+          step: 5
+      volume_multiplier:
+        values: [1.5]
+      atr_stop_multiplier:
+        values: [2.0]
+      max_bars_held:
+        values: [16]
+      ma_slope_threshold:
+        values: [0.1]
+      trend_rsi_min:
+        range:
+          start: 45
+          end: 55
+          step: 5
+      trend_rsi_max:
+        range:
+          start: 65
+          end: 75
+          step: 5
+
 
 # Output settings
 output:
