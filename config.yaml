@@ -5,7 +5,7 @@ data:
   filepath: "/Users/martinshih/Downloads/Systematic/Candlestick_Data/MES_Data/U19_H25.csv"
   date_column: "datetime"
   datetime_format: null  # Use null for auto-detection
-  data_type: "mes_futures"  # Add this to specify data type
+  data_type: "mes_futures"  # Specifies MES futures data type
 
 # Validation settings
 validation:
@@ -47,7 +47,7 @@ strategies:
           start: 10
           end: 100
           step: 5
-  
+
   moving_average_crossover:
     description: "Moving Average Crossover strategy"
     default_params:
@@ -85,19 +85,19 @@ strategies:
           end: 30
           step: 5
       bb_std:
-        values: [ 1.5, 2.0, 2.5 ]
+        values: [1.5, 2.0, 2.5]
       atr_period:
-        values: [ 10, 14, 20 ]
+        values: [10, 14, 20]
       stop_atr_multiplier:
-        values: [ 1.0, 1.5, 2.0 ]
+        values: [1.0, 1.5, 2.0]
       rsi_oversold:
-        values: [ 20, 30, 40 ]
+        values: [20, 30, 40]
       rsi_overbought:
-        values: [ 60, 70, 80 ]
+        values: [60, 70, 80]
       atr_min_threshold:
-        values: [ 0.7, 0.8, 0.9 ]
+        values: [0.7, 0.8, 0.9]
       atr_max_threshold:
-        values: [ 1.5, 2.0, 2.5 ]
+        values: [1.5, 2.0, 2.5]
     bullish_patterns:
       values: [
         'hammer',
@@ -117,76 +117,20 @@ strategies:
         'three_black_crows',
         'three_line_strike_bullish'
       ]
-    reduced_parameter_grid:
-      bb_period:
-        values: [ 20]  # Reduced from range to specific values
-      bb_std:
-        values: [ 2.0 ]
-      atr_period:
-        values: [ 14 ]  # Reduced to single value
-      stop_atr_multiplier:
-        values: [ 1.5 ]  # Reduced to single value
-      rsi_oversold:
-        values: [ 35 ]  # Reduced to single value
-      rsi_overbought:
-        values: [ 65 ]  # Reduced to single value
-      atr_min_threshold:
-        values: [ 0.8 ]  # Reduced to single value
-      atr_max_threshold:
-        values: [ 2.0 ]  # Reduced to single value
-      bullish_patterns:
-        values: [
-          'hammer',
-          'engulfing'
-        ]  # Reduced to most important patterns
-      bearish_patterns:
-        values: [
-          'shooting_star',
-          'engulfing'
-        ]  # Reduced to most important patterns
 
   enhanced_market_regime:
-    description: "Enhanced Market Regime strategy with Mean Reversion and Trend Following"
-    default_params:
-      rsi_oversold: 35
-      rsi_overbought: 65
-      volume_multiplier: 1.5
-      atr_stop_multiplier: 2.0
-      max_bars_held: 16
-      bb_window: 20
-      trend_rsi_min: 50
-      trend_rsi_max: 70
-      ma_slope_threshold: 0.1
+    description: "Enhanced Market Regime strategy with Mean Reversion"
     parameter_grid:
       rsi_oversold:
-        range:
-          start: 30
-          end: 40
-          step: 5
+        values: [25, 35]
       rsi_overbought:
-        range:
-          start: 60
-          end: 70
-          step: 5
+        values: [65, 75]
       volume_multiplier:
         values: [1.5]
-      atr_stop_multiplier:
-        values: [2.0]
       max_bars_held:
-        values: [16]
-      ma_slope_threshold:
-        values: [0.1]
-      trend_rsi_min:
-        range:
-          start: 45
-          end: 55
-          step: 5
-      trend_rsi_max:
-        range:
-          start: 65
-          end: 75
-          step: 5
-
+        values: [12, 16, 20]
+      bb_window:
+        values: [20]
 
 # Output settings
 output:
@@ -194,3 +138,8 @@ output:
   results_dir: "results"
   plot_results: true
 
+# Output settings
+output:
+  save_results: true
+  results_dir: "results"
+  plot_results: true
