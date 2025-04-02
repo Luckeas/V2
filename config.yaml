@@ -65,8 +65,62 @@ strategies:
           end: 200
           step: 10
 
+  morning_reversal:
+    description: "Morning Reversal strategy based on Bollinger Bands, VWAP, and candlestick patterns"
+    default_params:
+      bb_period: 20
+      bb_std: 2.0
+      atr_period: 14
+      stop_atr_multiplier: 1.5
+      risk_per_trade: 0.01
+      rsi_period: 14
+      rsi_oversold: 30
+      rsi_overbought: 70
+      atr_min_threshold: 0.8
+      atr_max_threshold: 2.0
+    parameter_grid:
+      bb_period:
+        range:
+          start: 10
+          end: 30
+          step: 5
+      bb_std:
+        values: [ 1.5, 2.0, 2.5 ]
+      atr_period:
+        values: [ 10, 14, 20 ]
+      stop_atr_multiplier:
+        values: [ 1.0, 1.5, 2.0 ]
+      rsi_oversold:
+        values: [ 20, 30, 40 ]
+      rsi_overbought:
+        values: [ 60, 70, 80 ]
+      atr_min_threshold:
+        values: [ 0.7, 0.8, 0.9 ]
+      atr_max_threshold:
+        values: [ 1.5, 2.0, 2.5 ]
+    bullish_patterns:
+      values: [
+        'hammer',
+        'engulfing',
+        'morning_star',
+        'piercing_line',
+        'three_white_soldiers',
+        'three_outside_up',
+        'morning_doji_star'
+      ]
+    bearish_patterns:
+      values: [
+        'shooting_star',
+        'engulfing',
+        'evening_star',
+        'dark_cloud_cover',
+        'three_black_crows',
+        'three_line_strike_bullish'
+      ]
+
 # Output settings
 output:
   save_results: true
   results_dir: "results"
   plot_results: true
+
