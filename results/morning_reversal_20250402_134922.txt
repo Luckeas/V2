@@ -1,0 +1,24 @@
+Morning Reversal Strategy Optimization Results
+Date: 2025-04-02 13:49:22
+Data period: 2023-01-02 18:00:00 to 2023-12-29 16:55:00
+Optimization time: 12.61 seconds
+
+Best Parameters:
+  bb_period: 15
+  bb_std: 1.5
+  atr_period: 14
+  stop_atr_multiplier: 1.5
+  rsi_oversold: 30
+  rsi_overbought: 70
+  atr_min_threshold: 0.8
+  atr_max_threshold: 2.0
+
+Best profit_factor: 0.0000
+
+Performance Metrics:
+  Profit Factor: 0.0000
+  Sharpe Ratio: -0.1158
+  Calmar Ratio: -0.0043
+  Total Return: -0.3122
+  Win Rate: 0.0000
+  Num Trades: 12.0000

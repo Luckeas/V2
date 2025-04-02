@@ -117,6 +117,33 @@ strategies:
         'three_black_crows',
         'three_line_strike_bullish'
       ]
+    reduced_parameter_grid:
+      bb_period:
+        values: [ 15, 20, 25 ]  # Reduced from range to specific values
+      bb_std:
+        values: [ 1.5, 2.0, 2.5 ]
+      atr_period:
+        values: [ 14 ]  # Reduced to single value
+      stop_atr_multiplier:
+        values: [ 1.5 ]  # Reduced to single value
+      rsi_oversold:
+        values: [ 30 ]  # Reduced to single value
+      rsi_overbought:
+        values: [ 70 ]  # Reduced to single value
+      atr_min_threshold:
+        values: [ 0.8 ]  # Reduced to single value
+      atr_max_threshold:
+        values: [ 2.0 ]  # Reduced to single value
+      bullish_patterns:
+        values: [
+          'hammer',
+          'engulfing'
+        ]  # Reduced to most important patterns
+      bearish_patterns:
+        values: [
+          'shooting_star',
+          'engulfing'
+        ]  # Reduced to most important patterns
 
 # Output settings
 output:
