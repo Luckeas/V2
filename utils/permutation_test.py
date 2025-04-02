@@ -120,6 +120,8 @@ def insample_permutation_test(
     
     # Run permutation tests
     for i in tqdm(range(n_permutations), desc="In-sample permutation test"):
+        if i % 100 == 0 and i > 0:
+            print(f"Completed {i} permutations")
         # Generate permuted data
         permuted_data = permute_bars(data)
         
@@ -201,7 +203,12 @@ def walkforward_permutation_test(
     
     # Run permutation tests
     for i in tqdm(range(n_permutations), desc="Walk-forward permutation test"):
+        # Add this print statement right here
+        if i % 100 == 0 and i > 0:
+            print(f"Completed {i} permutations")
+
         # Generate permuted test data (permutation starts after training data)
+        permuted_data = permute_bars(combined_data, start_index=train_size)        # Generate permuted test data (permutation starts after training data)
         permuted_data = permute_bars(combined_data, start_index=train_size)
         permuted_test_data = permuted_data.iloc[train_size:]
         
