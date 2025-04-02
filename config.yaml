@@ -12,8 +12,8 @@ validation:
   # In-sample optimization
   insample:
     train_start: "2023-01-01"
-    train_end: "2023-12-31"
-    objective_function: "profit_factor"  # Options: profit_factor, sharpe_ratio, calmar_ratio
+    train_end: "2023-01-31"
+    objective_function: "sharpe_ratio"  # Options: profit_factor, sharpe_ratio, calmar_ratio
 
   # In-sample permutation test
   insample_test:
@@ -122,15 +122,23 @@ strategies:
     description: "Enhanced Market Regime strategy with Mean Reversion"
     parameter_grid:
       rsi_oversold:
-        values: [25, 35]
+        values: [ 25, 35 ]          # 2 (slightly tighter range)
       rsi_overbought:
-        values: [65, 75]
+        values: [ 65, 75 ]          # 2 (slightly tighter range)
       volume_multiplier:
-        values: [1.5]
+        values: [ 1.5 ]             # 1 (fixed, worked well)
       max_bars_held:
-        values: [12, 16, 20]
+        values: [ 12, 16 ]          # 2 (reduced from 3, 12 was best)
       bb_window:
-        values: [20]
+        values: [ 20 ]              # 1 (fixed, standard value)
+      stop_atr_multiplier:
+        values: [ 1.0, 1.5 ]             # 1 (fixed, moderate stop worked)
+
+  # Output settings
+  output:
+    save_results: true
+    results_dir: "results"
+    plot_results: true
 
 # Output settings
 output:
