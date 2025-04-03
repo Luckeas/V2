@@ -12,7 +12,7 @@ validation:
   # In-sample optimization
   insample:
     train_start: "2023-01-01"
-    train_end: "2023-03-31"
+    train_end: "2023-02-28"
     objective_function: "sharpe_ratio"  # Options: profit_factor, sharpe_ratio, calmar_ratio
 
   # In-sample permutation test
@@ -122,25 +122,25 @@ strategies:
     description: "Enhanced Market Regime strategy with Mean Reversion"
     parameter_grid:
       rsi_oversold:
-        values: [ 15 ]
+        values: [15]
       rsi_overbought:
-        values: [ 75 ]
+        values: [75]
       volume_multiplier:
-        values: [ 1.75 ]
+        values: [1.75]
       max_bars_held:
-        values: [ 10 ]
+        values: [10]
       bb_window:
-        values: [ 20 ]
+        values: [20]
       stop_atr_multiplier:
-        values: [ 100 ]
+        values: [100]
       trail_atr_multiplier:
-        values: [ 100 ]
+        values: [100]
       adx_threshold:
-        values: [ 100 ]
+        values: [100]
       max_volatility_percentile:
-        values: [ 0.7 ]
+        values: [0.7]
       respect_sma:
-        values: [ true ]
+        values: [true]
 
   supply_demand:
     description: "Supply and Demand Strategy based on market structure, zone identification, and risk-reward filtering"
@@ -152,27 +152,15 @@ strategies:
       max_bars_held: 20
     parameter_grid:
       consolidation_lookback:
-        values: [ 2,3]
+        values: [2, 5]
       consolidation_threshold:
-        values: [ 0.2]
+        values: [0.2, 0.4]
       min_risk_reward_ratio:
-        values: [ 2.0 ]
+        values: [1.5, 2.5]
       stop_loss_buffer:
-        values: [ 0.02 ]
+        values: [0.02, 0.05]
       max_bars_held:
-        values: [ 10]
-
-  # Output settings
-  output:
-    save_results: true
-    results_dir: "results"
-    plot_results: true
-
-# Output settings
-output:
-  save_results: true
-  results_dir: "results"
-  plot_results: true
+        values: [10, 30]
 
 # Output settings
 output:

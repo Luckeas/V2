@@ -199,6 +199,12 @@ class SupplyDemandStrategy(Strategy):
                         df.loc[current_idx, 'supply_zone_start'] = df.loc[current_idx, 'low']
                         df.loc[current_idx, 'supply_zone_end'] = df.loc[current_idx, 'high']
 
+        # DEBUG: Count consolidation areas and impulse moves
+        consolidation_count = df['is_consolidation'].sum()
+        impulse_count = df['is_impulse'].sum()
+
+        print(f"Found {consolidation_count} consolidation areas and {impulse_count} impulse moves")
+
         return df
 
     def _calculate_risk_reward(self, entry_price: float, stop_price: float, target_price: float) -> float:
@@ -241,6 +247,21 @@ class SupplyDemandStrategy(Strategy):
         # Process market structure and find zones
         df = self._identify_market_structure(data)
         df = self._identify_consolidation_areas(df)
+
+        # DEBUG: Count trends and zones
+        trend_counts = {-1: 0, 0: 0, 1: 0}
+        zone_counts = {'supply': 0, 'demand': 0}
+
+        # Count trends in the data
+        for i in range(len(df)):
+            trend_counts[df.iloc[i]['trend']] += 1
+
+        # Count zones
+        zone_counts['supply'] = df['supply_zone_start'].notna().sum()
+        zone_counts['demand'] = df['demand_zone_start'].notna().sum()
+
+        print(f"Trend counts: {trend_counts}")
+        print(f"Zone counts: {zone_counts}")
 
         # Reset trade statistics
         self.trade_count = 0
@@ -339,9 +360,65 @@ class SupplyDemandStrategy(Strategy):
         # Save trade count for reporting
         self.last_trade_count = self.trade_count
 
+        # Add this in generate_signals() method, just before the return statement
+        print(f"Data range: {df.index[0]} to {df.index[-1]}, total bars: {len(df)}")
+
+        # Counter for entry conditions
+        total_zone_checks = 0
+        price_in_zone_count = 0
+        rr_insufficient_count = 0
+        potential_entries = 0
+
+        # Loop through debug
+        for i in range(1, len(df)):
+            current_idx = df.index[i]
+            current_price = df.loc[current_idx, 'close']
+            current_trend = df.loc[current_idx, 'trend']
+
+            # Only count when we have a definite trend
+            if current_trend == 0:
+                continue
+
+            # Sample check for one condition (adjust to match your actual logic)
+            if current_trend == 1:  # Uptrend
+                for j in range(max(0, i - 20), i):
+                    look_idx = df.index[j]
+                    zone_start = df.loc[look_idx, 'demand_zone_start']
+                    zone_end = df.loc[look_idx, 'demand_zone_end']
+
+                    if pd.notna(zone_start) and pd.notna(zone_end):
+                        total_zone_checks += 1
+
+                        # Check if price is in zone
+                        if zone_start <= current_price <= zone_end:
+                            price_in_zone_count += 1
+
+                            # Calculate stop loss and take profit (simplified)
+                            stop_loss = zone_start * (1 - self.parameters['stop_loss_buffer'])
+                            recent_high = df['high'].iloc[max(0, i - 10):i].max()
+                            take_profit = recent_high
+
+                            # Calculate risk-reward ratio
+                            risk = abs(current_price - stop_loss)
+                            reward = abs(take_profit - current_price)
+
+                            if risk > 0:
+                                rr_ratio = reward / risk
+                                # Check if R:R meets minimum requirement
+                                if rr_ratio >= self.parameters['min_risk_reward_ratio']:
+                                    potential_entries += 1
+                                else:
+                                    rr_insufficient_count += 1
+
+        print(f"Entry condition stats:")
+        print(f"  Total zone checks: {total_zone_checks}")
+        print(f"  Price in zone count: {price_in_zone_count}")
+        print(f"  R:R insufficient count: {rr_insufficient_count}")
+        print(f"  Potential entries: {potential_entries}")
+
         return signals
 
-    def compute_returns(self, data: pd.DataFrame, signals: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def compute_returns(self, data: pd.DataFrame, signals: np.ndarray) -> np.ndarray:
         """
         Compute returns based on signals, handling stop losses and take profits.
 
@@ -350,7 +427,7 @@ class SupplyDemandStrategy(Strategy):
             signals (np.ndarray): Array of trading signals.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray]: Array of strategy returns and active positions.
+            np.ndarray: Array of strategy returns.
         """
         # Run market structure and zone identification for stop loss and take profit levels
         df = self._identify_market_structure(data)
@@ -455,12 +532,26 @@ class SupplyDemandStrategy(Strategy):
                     recent_low = data['low'].iloc[max(0, i - 10):i].min()
                     take_profit = recent_low
 
-        return returns, active_positions
+        # Store active_positions for reference but only return the returns array
+        self.active_positions = active_positions
+        return returns
 
     def optimize(self, data: pd.DataFrame, objective_func: callable,
                  parameter_grid: Dict[str, List[Any]], n_jobs: int = 8) -> Tuple[Dict[str, Any], float]:
+        """
+        Optimize strategy parameters using parallel processing.
+
+        Args:
+            data (pd.DataFrame): Market data with OHLC prices.
+            objective_func (callable): Function to optimize (e.g., sharpe_ratio).
+            parameter_grid (Dict[str, List[Any]]): Grid of parameters to search.
+            n_jobs (int): Number of parallel jobs to run.
+
+        Returns:
+            Tuple[Dict[str, Any], float]: Best parameters and corresponding objective value.
+        """
         import itertools
-        from joblib import Parallel, delayed
+        from tqdm import tqdm
 
         keys, values = zip(*parameter_grid.items())
         combinations = list(itertools.product(*values))
@@ -473,13 +564,10 @@ class SupplyDemandStrategy(Strategy):
         if self.debug:
             print(f"Testing {total_combinations} parameter combinations...")
 
-        # Progress counter without multiprocessing.Manager overhead
-        from tqdm import tqdm
-
         def evaluate_params(combo):
             params = dict(zip(keys, combo))
             signals = self.generate_signals(prepared_df, params)
-            returns, _ = self.compute_returns(prepared_df, signals)
+            returns = self.compute_returns(prepared_df, signals)
             value = objective_func(returns)
             return params, value
 
@@ -487,7 +575,13 @@ class SupplyDemandStrategy(Strategy):
             delayed(evaluate_params)(combo) for combo in tqdm(combinations)
         )
 
-        best_params, best_value = max(results, key=lambda x: x[1])
+        # Find best result
+        if objective_func.__name__ == "drawdown":
+            # For drawdown, lower is better
+            best_params, best_value = min(results, key=lambda x: x[1])
+        else:
+            # For other metrics like Sharpe ratio, higher is better
+            best_params, best_value = max(results, key=lambda x: x[1])
 
         if self.debug:
             print(f"Optimization complete. Best value: {best_value:.4f}")
