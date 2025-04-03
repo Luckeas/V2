@@ -8,6 +8,7 @@ class Strategy:
     def __init__(self, name: str):
         self.name = name
 
+
 class EnhancedMarketRegimeStrategy(Strategy):
     def __init__(self,
                  rsi_oversold: int = 35,
@@ -15,7 +16,8 @@ class EnhancedMarketRegimeStrategy(Strategy):
                  volume_multiplier: float = 1.5,
                  max_bars_held: int = 16,
                  bb_window: int = 20,
-                 stop_atr_multiplier: float = 1.5):
+                 stop_atr_multiplier: float = 1.5,
+                 trail_atr_multiplier: float = 2.0):  # New parameter for trailing stop
         super().__init__(name="Enhanced Market Regime Strategy")
         self.parameters = {
             "rsi_oversold": rsi_oversold,
@@ -23,8 +25,70 @@ class EnhancedMarketRegimeStrategy(Strategy):
             "volume_multiplier": volume_multiplier,
             "max_bars_held": max_bars_held,
             "bb_window": bb_window,
-            "stop_atr_multiplier": stop_atr_multiplier
+            "stop_atr_multiplier": stop_atr_multiplier,
+            "trail_atr_multiplier": trail_atr_multiplier  # Add to parameters dictionary
         }
+
+    def compute_returns(self, data: pd.DataFrame, signals: np.ndarray) -> np.ndarray:
+        print(f"Parameters in compute_returns: {self.parameters}")
+        data = self._calculate_indicators(data)
+        log_returns = np.log(data['close'] / data['close'].shift(1)).fillna(0)
+        strategy_returns = np.zeros_like(log_returns)
+        position = 0
+        entry_bar = 0
+        entry_price = 0.0
+        highest_high = 0.0
+        lowest_low = 0.0
+
+        for i in range(1, len(data) - 1):
+            if position != 0:
+                strategy_returns[i + 1] = position * log_returns.iloc[i + 1]
+
+                # Update trailing stop logic
+                if position > 0:
+                    highest_high = max(highest_high, data['close'].iloc[i])
+                    trailing_stop = highest_high - self.parameters['trail_atr_multiplier'] * data['atr'].iloc[i]
+                    if data['close'].iloc[i] <= trailing_stop:
+                        print(
+                            f"Bar {i}: Long exited by trailing stop at {data['close'].iloc[i]} (stop: {trailing_stop}, ATR: {data['atr'].iloc[i]})")
+                        position = 0
+                elif position < 0:
+                    lowest_low = min(lowest_low, data['close'].iloc[i])
+                    trailing_stop = lowest_low + self.parameters['trail_atr_multiplier'] * data['atr'].iloc[i]
+                    if data['close'].iloc[i] >= trailing_stop:
+                        print(
+                            f"Bar {i}: Short exited by trailing stop at {data['close'].iloc[i]} (stop: {trailing_stop}, ATR: {data['atr'].iloc[i]})")
+                        position = 0
+
+                # Fixed stop loss check
+                if position != 0:
+                    atr = data['atr'].iloc[i - 1]
+                    stop_loss = entry_price - (position * self.parameters['stop_atr_multiplier'] * atr)
+                    if (position > 0 and data['close'].iloc[i] < stop_loss) or \
+                            (position < 0 and data['close'].iloc[i] > stop_loss):
+                        print(
+                            f"Bar {i}: Exited by fixed stop at {data['close'].iloc[i]} (stop: {stop_loss}, ATR: {atr})")
+                        position = 0
+                    elif i - entry_bar >= self.parameters['max_bars_held']:
+                        print(
+                            f"Bar {i}: Exited by max_bars_held ({self.parameters['max_bars_held']}) at {data['close'].iloc[i]}")
+                        position = 0
+                    else:
+                        print(f"Bar {i}: Position {position} still active, bars held: {i - entry_bar}")
+
+            if position == 0 and signals[i] != 0:
+                position = signals[i]
+                entry_bar = i
+                entry_price = data['close'].iloc[i]
+                if position > 0:
+                    highest_high = data['close'].iloc[i]
+                else:
+                    lowest_low = data['close'].iloc[i]
+                print(f"Bar {i}: Entered position {position} at {entry_price}")
+
+        print(
+            f"Total trades executed: {sum(1 for i in range(len(signals)) if signals[i] != 0 and (i == 1 or signals[i - 1] == 0))}")
+        return strategy_returns
 
     def _calculate_support_resistance(self, data: pd.DataFrame) -> pd.DataFrame:
         """Calculate volume-based support and resistance levels."""
@@ -178,183 +242,141 @@ class EnhancedMarketRegimeStrategy(Strategy):
     def generate_signals(self, data: pd.DataFrame, parameters: Dict[str, Any] = None) -> np.ndarray:
         if parameters is not None:
             self.parameters.update(parameters)
-
-        # Add default parameters for new filters if not present
-        if 'adx_threshold' not in self.parameters:
-            self.parameters['adx_threshold'] = 25  # ADX above this indicates strong trend
-        if 'max_volatility_percentile' not in self.parameters:
-            self.parameters['max_volatility_percentile'] = 0.8  # Avoid top 20% volatile periods
-        if 'respect_sma' not in self.parameters:
-            self.parameters['respect_sma'] = True  # Respect SMA trend direction
-
-        # Calculate all indicators
+        print(f"Parameters in generate_signals: {self.parameters}")
         data = self._calculate_indicators(data)
-
-        # Calculate support/resistance levels
-        data = self._calculate_support_resistance(data)
-
         signals = np.zeros(len(data))
         p = self.parameters
 
-        # Use only data available at bar open
-        for i in range(2, len(data)):  # Start at index 2 to have enough history
+        for i in range(2, len(data)):
             prev_row = data.iloc[i - 1]
             earlier_row = data.iloc[i - 2]
 
-            # Skip if missing data
-            if pd.isna(prev_row['adx']) or pd.isna(prev_row['atr_percentile']):
-                continue
-
-            # Check if volatility is too high
-            volatility_too_high = prev_row['atr_percentile'] > p['max_volatility_percentile']
-
-            # Check trend direction
-            trend_down = prev_row['sma50'] < prev_row['sma200'] if not pd.isna(prev_row['sma50']) and not pd.isna(
-                prev_row['sma200']) else False
-            strong_trend = prev_row['adx'] > p['adx_threshold'] if not pd.isna(prev_row['adx']) else False
-
-            # Basic mean reversion signals (from existing code)
-            mean_rev_long_base = (
+            mean_rev_long = (
                     earlier_row['low'] < earlier_row['lower_band'] and
                     earlier_row['RSI'] < p['rsi_oversold'] and
                     earlier_row['volume'] > p['volume_multiplier'] * earlier_row['avg_volume'] and
                     prev_row['open'] > earlier_row['low'] * 1.0005
             )
 
-            mean_rev_short_base = (
+            mean_rev_short = (
                     earlier_row['high'] > earlier_row['upper_band'] and
                     earlier_row['RSI'] > p['rsi_overbought'] and
                     earlier_row['volume'] > p['volume_multiplier'] * earlier_row['avg_volume'] and
                     prev_row['open'] < earlier_row['high'] * 0.9995
             )
 
-            # Apply filters for long trades
-            mean_rev_long = mean_rev_long_base and not volatility_too_high
-
-            # For long trades, either don't need to respect trend or trend should be up
-            if p['respect_sma']:
-                mean_rev_long = mean_rev_long and (not strong_trend or not trend_down)
-
-            # Check if price is near support level (if available)
-            if not pd.isna(prev_row['closest_support']):
-                support_proximity = abs(prev_row['low'] - prev_row['closest_support']) / prev_row['closest_support']
-                mean_rev_long = mean_rev_long and support_proximity < 0.01  # Within 1% of support
-
-            # Apply filters for short trades
-            mean_rev_short = mean_rev_short_base and not volatility_too_high
-
-            # For short trades, either don't need to respect trend or trend should be down
-            if p['respect_sma']:
-                mean_rev_short = mean_rev_short and (not strong_trend or trend_down)
-
-            # Check if price is near resistance level (if available)
-            if not pd.isna(prev_row['closest_resistance']):
-                resistance_proximity = abs(prev_row['high'] - prev_row['closest_resistance']) / prev_row[
-                    'closest_resistance']
-                mean_rev_short = mean_rev_short and resistance_proximity < 0.01  # Within 1% of resistance
-
-            # Set signals based on conditions
             if mean_rev_long:
                 signals[i] = 1
+                print(f"Bar {i}: Generated long signal")
             elif mean_rev_short:
                 signals[i] = -1
+                print(f"Bar {i}: Generated short signal")
 
+        print(f"Total signals generated: {sum(signals != 0)}")
         return signals
-
-    def compute_returns(self, data: pd.DataFrame, signals: np.ndarray) -> np.ndarray:
-        data = self._calculate_indicators(data)
-        log_returns = np.log(data['close'] / data['close'].shift(1)).fillna(0)
-        strategy_returns = np.zeros_like(log_returns)
-        position = 0
-        entry_bar = 0
-        entry_price = 0.0
-
-        for i in range(1, len(data) - 1):  # Changed to len(data)-1 to prevent index out of range
-            # Apply current position to next bar's returns
-            if position != 0:
-                strategy_returns[i + 1] = position * log_returns.iloc[i + 1]
-
-            # Check for position exit
-            if position != 0:
-                atr = data['atr'].iloc[i - 1]
-                stop_loss = entry_price - (position * self.parameters['stop_atr_multiplier'] * atr)
-                if (position > 0 and data['close'].iloc[i] < stop_loss) or \
-                        (position < 0 and data['close'].iloc[i] > stop_loss):
-                    position = 0
-                elif i - entry_bar >= self.parameters['max_bars_held']:
-                    position = 0
-
-            # Check for new entry if not in position
-            if position == 0 and signals[i] != 0:
-                position = signals[i]
-                entry_bar = i
-                entry_price = data['close'].iloc[i]
-                # Note: Returns for this new position will be applied on the next iteration
-
-        return strategy_returns
 
     def optimize(self, data: pd.DataFrame, objective_func: callable,
                  parameter_grid: Dict[str, List[Any]]) -> Tuple[Dict[str, Any], float]:
         from joblib import Parallel, delayed
         import itertools
+        import sys
+        import multiprocessing
 
         best_value = -np.inf if objective_func.__name__ != "drawdown" else np.inf
         best_params = {}
 
-        # Extract parameter values from grid
-        rsi_oversold = parameter_grid.get('rsi_oversold', [30, 35, 40])
-        rsi_overbought = parameter_grid.get('rsi_overbought', [60, 65, 70])
-        volume_multiplier = parameter_grid.get('volume_multiplier', [1.2, 1.5, 1.8])
-        max_bars_held = parameter_grid.get('max_bars_held', [2, 3, 5, 10])
-        bb_window = parameter_grid.get('bb_window', [15, 20, 25])
-        stop_atr_multiplier = parameter_grid.get('stop_atr_multiplier', [1.0, 1.5, 2.0])
+        # Extract parameter values from grid with defaults
+        rsi_oversold = parameter_grid.get('rsi_oversold', [20, 25])
+        rsi_overbought = parameter_grid.get('rsi_overbought', [75, 80])
+        volume_multiplier = parameter_grid.get('volume_multiplier', [1.5, 1.75])
+        max_bars_held = parameter_grid.get('max_bars_held', [10, 16])
+        bb_window = parameter_grid.get('bb_window', [15, 20])
+        stop_atr_multiplier = parameter_grid.get('stop_atr_multiplier', [2.5, 3.0])
+        trail_atr_multiplier = parameter_grid.get('trail_atr_multiplier', [1.5, 2.0, 2.5, 3.0])
+        adx_threshold = parameter_grid.get('adx_threshold', [20, 25, 30])
+        max_volatility_percentile = parameter_grid.get('max_volatility_percentile', [0.7, 0.8, 0.9])
+        respect_sma = parameter_grid.get('respect_sma', [True, False])
 
         # Create all parameter combinations
         param_combinations = list(itertools.product(
             rsi_oversold, rsi_overbought, volume_multiplier,
-            max_bars_held, bb_window, stop_atr_multiplier
+            max_bars_held, bb_window, stop_atr_multiplier,
+            trail_atr_multiplier,  # Integrated here
+            adx_threshold, max_volatility_percentile, respect_sma
         ))
 
         total_combinations = len(param_combinations)
-        print(f"Testing {total_combinations} parameter combinations in parallel...")
+        print(f"Testing {total_combinations} parameter combinations...")
+
+        # Use a multiprocessing manager for shared counter
+        manager = multiprocessing.Manager()
+        counter = manager.Value('i', 0)
+
+        def update_progress(total, counter):
+            """Update progress in a way that can be pickled."""
+            counter.value += 1
+            sys.stdout.write(f"\rProgress: {counter.value}/{total} ({counter.value / total * 100:.2f}%)")
+            sys.stdout.flush()
 
         # Define function to evaluate a single parameter set
-        def evaluate_params(params_tuple):
-            rsi_os, rsi_ob, vol_mult, max_bars, bb_win, stop_atr = params_tuple
-
-            # Skip invalid combinations
-            if rsi_os >= rsi_ob:
-                return None, -np.inf if objective_func.__name__ != "drawdown" else np.inf
-
-            params = {
-                'rsi_oversold': rsi_os,
-                'rsi_overbought': rsi_ob,
-                'volume_multiplier': vol_mult,
-                'max_bars_held': max_bars,
-                'bb_window': bb_win,
-                'stop_atr_multiplier': stop_atr
-            }
-
+        def evaluate_params(params_tuple, total_combinations, progress_counter):
             try:
+                rsi_os, rsi_ob, vol_mult, max_bars, bb_win, stop_atr, trail_atr, \
+                    adx_thresh, vol_pct, respect_sma_flag = params_tuple
+
+                # Skip invalid combinations
+                if rsi_os >= rsi_ob:
+                    update_progress(total_combinations, progress_counter)
+                    return None, -np.inf if objective_func.__name__ != "drawdown" else np.inf
+
+                params = {
+                    'rsi_oversold': rsi_os,
+                    'rsi_overbought': rsi_ob,
+                    'volume_multiplier': vol_mult,
+                    'max_bars_held': max_bars,
+                    'bb_window': bb_win,
+                    'stop_atr_multiplier': stop_atr,
+                    'trail_atr_multiplier': trail_atr,  # Integrated here
+                    'adx_threshold': adx_thresh,
+                    'max_volatility_percentile': vol_pct,
+                    'respect_sma': respect_sma_flag
+                }
+
                 signals = self.generate_signals(data, params)
                 returns = self.compute_returns(data, signals)
                 value = objective_func(returns)
+
+                # Update progress
+                update_progress(total_combinations, progress_counter)
+
                 return params, value
-            except Exception as e:
-                print(f"Error with params {params}: {e}")
+            except Exception:
+                update_progress(total_combinations, progress_counter)
                 return None, -np.inf if objective_func.__name__ != "drawdown" else np.inf
 
-        # Run evaluations in parallel with 8 jobs
-        results = Parallel(n_jobs=8, verbose=10)(
-            delayed(evaluate_params)(params) for params in param_combinations
+        # Parallel execution
+        results = Parallel(n_jobs=-1)(
+            delayed(evaluate_params)(params, total_combinations, counter)
+            for params in param_combinations
         )
 
+        # Print a newline after progress updates
+        print()
+
         # Find best results
-        for params, value in results:
-            if params is not None:
-                if (objective_func.__name__ != "drawdown" and value > best_value) or \
-                        (objective_func.__name__ == "drawdown" and value < best_value):
-                    best_value = value
-                    best_params = params
+        valid_results = [r for r in results if r[0] is not None]
+
+        if not valid_results:
+            print("No valid parameter combinations found!")
+            return {}, -np.inf
+
+        for params, value in valid_results:
+            if (objective_func.__name__ != "drawdown" and value > best_value) or \
+                    (objective_func.__name__ == "drawdown" and value < best_value):
+                best_value = value
+                best_params = params
+
+        print(f"\nBest Parameters: {best_params}")
+        print(f"Best {objective_func.__name__}: {best_value}")
 
         return best_params, best_value
