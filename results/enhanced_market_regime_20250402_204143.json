@@ -1,0 +1,19 @@
+{
+    "strategy_name": "Enhanced Market Regime Strategy",
+    "strategy_parameters": {
+        "rsi_oversold": 35,
+        "rsi_overbought": 65,
+        "volume_multiplier": 1.5,
+        "max_bars_held": 3,
+        "bb_window": 20,
+        "stop_atr_multiplier": 2.0
+    },
+    "metrics": {
+        "profit_factor": 5.182491405169819,
+        "sharpe_ratio": 1.458735802568138,
+        "max_drawdown": 0.002244165170556478,
+        "cagr": 0.0044183145047531625,
+        "calmar_ratio": 1.9688009433180749,
+        "total_return": 0.35980481852193225,
+        "win_rate": 0.7232267037552156,
+        "num_trades": 

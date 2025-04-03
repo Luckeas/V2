@@ -5,6 +5,8 @@ Main script for running backtests with the four validation steps:
 2. In-sample permutation test
 3. Walk-forward test
 4. Walk-forward permutation test
+
+Added debug statements to ensure results are displayed properly.
 """
 
 import os
@@ -15,6 +17,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 import json
 from pprint import pprint
+import sys
 
 from utils.config import Config
 from utils.data_loader import DataLoader
@@ -42,11 +45,15 @@ def main():
     parser.add_argument('--strategy', type=str, required=True, help='Strategy to backtest.')
     parser.add_argument('--data', type=str, help='Path to data file (overrides config).')
     parser.add_argument('--mes-data', action='store_true', help='Indicate that the data is MES futures format.')
-    parser.add_argument('--steps', type=str, default='1,2,3,4', help='Validation steps to run (comma-separated, e.g., 1,2,3,4).')
+    parser.add_argument('--steps', type=str, default='1,2,3,4',
+                        help='Validation steps to run (comma-separated, e.g., 1,2,3,4).')
     parser.add_argument('--train_start', type=str, help='Start date for training period (YYYY-MM-DD).')
     parser.add_argument('--train_end', type=str, help='End date for training period (YYYY-MM-DD).')
+    parser.add_argument('--jobs', type=int, default=-1,
+                        help='Number of parallel jobs for permutation test. -1 for all cores.')
     args = parser.parse_args()
 
+    print("Starting backtest with debug statements...", flush=True)
 
     # Load configuration
     config = Config.load_yaml(args.config)
@@ -70,92 +77,107 @@ def main():
     if args.mes_data or data_type == 'mes_futures' or 'U19_H25' in data_filepath:
         try:
             data = data_loader.load_mes_futures(data_filepath)
-            print(f"Loaded MES futures data: {len(data)} rows from {data.index[0]} to {data.index[-1]}")
+            print(f"Loaded MES futures data: {len(data)} rows from {data.index[0]} to {data.index[-1]}", flush=True)
         except AttributeError:
             # Fallback if method not available
-            print("Warning: load_mes_futures method not found, using standard data loader.")
+            print("Warning: load_mes_futures method not found, using standard data loader.", flush=True)
             data = data_loader.load_csv(
                 data_filepath,
                 date_column='datetime',
                 datetime_format=None
             )
-            print(f"Loaded data with standard loader: {len(data)} rows from {data.index[0]} to {data.index[-1]}")
+            print(f"Loaded data with standard loader: {len(data)} rows from {data.index[0]} to {data.index[-1]}",
+                  flush=True)
     else:
         data = data_loader.load_csv(
             data_filepath,
             date_column=config['data']['date_column'],
             datetime_format=config['data']['datetime_format']
         )
-        print(f"Loaded standard data: {len(data)} rows from {data.index[0]} to {data.index[-1]}")
-    
+        print(f"Loaded standard data: {len(data)} rows from {data.index[0]} to {data.index[-1]}", flush=True)
+
     # Get strategy configuration
     strategy_config = Config.get_strategy_config(config, args.strategy)
-    
+
     # Create strategy instance
     strategy = StrategyFactory.create_strategy(args.strategy, strategy_config.get('default_params'))
-    
-    print(f"Created strategy: {strategy.name}")
-    
+
+    print(f"Created strategy: {strategy.name}", flush=True)
+
     # Create backtester
     backtester = Backtester(strategy, data)
-    
+
     # Get parameter grid
     parameter_grid = Config.get_parameter_grid(strategy_config)
-    
+
     # Get objective function
     objective_func_name = config['validation']['insample']['objective_function']
     objective_func = OBJECTIVE_FUNCTIONS[objective_func_name]
-    
+
     # Create results directory
     results_dir = config['output']['results_dir']
     os.makedirs(results_dir, exist_ok=True)
-    
+
     # Generate timestamp for results
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    
+
     # Run validation steps
     if 1 in steps:
-        print("\n===== Step 1: In-Sample Optimization =====")
+        print("\n===== Step 1: In-Sample Optimization =====", flush=True)
         optimization_results = backtester.run_insample_optimization(
             train_start=config['validation']['insample']['train_start'],
             train_end=config['validation']['insample']['train_end'],
             parameter_grid=parameter_grid,
             objective_func=objective_func
         )
-        
-        print(f"Best parameters: {optimization_results['best_params']}")
-        print(f"Best {objective_func.__name__}: {optimization_results['best_value']:.4f}")
-        
+
+        print(f"Best parameters: {optimization_results['best_params']}", flush=True)
+        print(f"Best {objective_func.__name__}: {optimization_results['best_value']:.4f}", flush=True)
+
         # Plot in-sample performance
         if config['output']['plot_results']:
             backtester.plot_insample_performance()
-    
+
     if 2 in steps:
-        print("\n===== Step 2: In-Sample Permutation Test =====")
-        test_results = backtester.run_insample_permutation_test(
-            train_start=config['validation']['insample']['train_start'],
-            train_end=config['validation']['insample']['train_end'],
-            parameter_grid=parameter_grid,
-            objective_func=objective_func,
-            n_permutations=config['validation']['insample_test']['n_permutations'],
-            show_plot=config['validation']['insample_test']['show_plot']
-        )
-        
-        print(f"P-value: {test_results['p_value']:.4f}")
-        print(f"Real {objective_func.__name__}: {test_results['real_objective']:.4f}")
-        
-        # Decision based on p-value
-        threshold = 0.01  # As mentioned in the video
-        if test_results['p_value'] <= threshold:
-            print(f"PASS: p-value ({test_results['p_value']:.4f}) <= threshold ({threshold})")
-        else:
-            print(f"FAIL: p-value ({test_results['p_value']:.4f}) > threshold ({threshold})")
-            if 3 not in steps and 4 not in steps:
-                print("Stopping due to failed in-sample permutation test.")
-                return
-    
+        print("\n===== Step 2: In-Sample Permutation Test =====", flush=True)
+        print("Starting permutation test - this may take some time...", flush=True)
+
+        try:
+            test_results = backtester.run_insample_permutation_test(
+                train_start=config['validation']['insample']['train_start'],
+                train_end=config['validation']['insample']['train_end'],
+                parameter_grid=parameter_grid,
+                objective_func=objective_func,
+                n_permutations=config['validation']['insample_test']['n_permutations'],
+                show_plot=False, # Force to False regardless of config,
+                n_jobs = args.jobs  # Add this line
+
+            )
+
+            print("\nPermutation test completed successfully!", flush=True)
+            print(f"Raw test results: {test_results}", flush=True)
+            print(f"P-value: {test_results['p_value']:.4f}", flush=True)
+            print(f"Real {objective_func.__name__}: {test_results['real_objective']:.4f}", flush=True)
+            print(f"Best parameters: {test_results['best_params']}", flush=True)
+
+            # Decision based on p-value
+            threshold = 0.01  # As mentioned in the video
+            if test_results['p_value'] <= threshold:
+                print(f"PASS: p-value ({test_results['p_value']:.4f}) <= threshold ({threshold})", flush=True)
+            else:
+                print(f"FAIL: p-value ({test_results['p_value']:.4f}) > threshold ({threshold})", flush=True)
+                if 3 not in steps and 4 not in steps:
+                    print("Stopping due to failed in-sample permutation test.", flush=True)
+                    return
+
+        except Exception as e:
+            print(f"ERROR in permutation test: {str(e)}", flush=True)
+            import traceback
+            traceback.print_exc()
+            print("Continuing with other steps...", flush=True)
+
     if 3 in steps:
-        print("\n===== Step 3: Walk-Forward Optimization =====")
+        print("\n===== Step 3: Walk-Forward Optimization =====", flush=True)
         walkforward_results = backtester.run_walkforward_optimization(
             train_window=config['validation']['walkforward']['train_window'],
             train_interval=config['validation']['walkforward']['train_interval'],
@@ -163,20 +185,20 @@ def main():
             objective_func=objective_func,
             show_optimization_progress=config['validation']['walkforward']['show_optimization_progress']
         )
-        
+
         # Print metrics
         metrics = walkforward_results['metrics']
-        print(f"Walk-forward {objective_func.__name__}: {metrics[objective_func.__name__]:.4f}")
-        print(f"Walk-forward total return: {metrics['total_return']:.4f}")
-        print(f"Walk-forward Sharpe ratio: {metrics['sharpe_ratio']:.4f}")
-        print(f"Walk-forward max drawdown: {metrics['max_drawdown']:.4f}")
-        
+        print(f"Walk-forward {objective_func.__name__}: {metrics[objective_func.__name__]:.4f}", flush=True)
+        print(f"Walk-forward total return: {metrics['total_return']:.4f}", flush=True)
+        print(f"Walk-forward Sharpe ratio: {metrics['sharpe_ratio']:.4f}", flush=True)
+        print(f"Walk-forward max drawdown: {metrics['max_drawdown']:.4f}", flush=True)
+
         # Plot walk-forward performance
         if config['output']['plot_results']:
             backtester.plot_walkforward_performance()
-    
+
     if 4 in steps:
-        print("\n===== Step 4: Walk-Forward Permutation Test =====")
+        print("\n===== Step 4: Walk-Forward Permutation Test =====", flush=True)
         wf_test_results = backtester.run_walkforward_permutation_test(
             train_data_start=config['validation']['walkforward_test']['train_data_start'],
             train_data_end=config['validation']['walkforward_test']['train_data_end'],
@@ -185,21 +207,26 @@ def main():
             parameter_grid=parameter_grid,
             objective_func=objective_func,
             n_permutations=config['validation']['walkforward_test']['n_permutations'],
-            show_plot=config['validation']['walkforward_test']['show_plot']
+            show_plot=config['validation']['walkforward_test']['show_plot'],
+            n_jobs=args.jobs  # Add this line
+
         )
-        
-        print(f"Walk-forward p-value: {wf_test_results['p_value']:.4f}")
-        print(f"Walk-forward real {objective_func.__name__}: {wf_test_results['real_objective']:.4f}")
-        
+
+        print(f"Walk-forward p-value: {wf_test_results['p_value']:.4f}", flush=True)
+        print(f"Walk-forward real {objective_func.__name__}: {wf_test_results['real_objective']:.4f}", flush=True)
+
         # Decision based on p-value
         threshold = 0.05  # A bit more lenient as mentioned in the video
         if wf_test_results['p_value'] <= threshold:
-            print(f"PASS: walk-forward p-value ({wf_test_results['p_value']:.4f}) <= threshold ({threshold})")
-            print("Strategy is validated and can be considered for live trading.")
+            print(f"PASS: walk-forward p-value ({wf_test_results['p_value']:.4f}) <= threshold ({threshold})",
+                  flush=True)
+            print("Strategy is validated and can be considered for live trading.", flush=True)
         else:
-            print(f"FAIL: walk-forward p-value ({wf_test_results['p_value']:.4f}) > threshold ({threshold})")
-            print("Strategy failed to pass walk-forward permutation test. Not recommended for live trading.")
-    
+            print(f"FAIL: walk-forward p-value ({wf_test_results['p_value']:.4f}) > threshold ({threshold})",
+                  flush=True)
+            print("Strategy failed to pass walk-forward permutation test. Not recommended for live trading.",
+                  flush=True)
+
     # Save results
     if config['output']['save_results']:
         results_filepath = os.path.join(
@@ -207,7 +234,15 @@ def main():
             f"{args.strategy}_{timestamp}.json"
         )
         backtester.save_results(results_filepath)
+        print(f"Results saved to: {results_filepath}", flush=True)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"CRITICAL ERROR: {str(e)}", flush=True)
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)
