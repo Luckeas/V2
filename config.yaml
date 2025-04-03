@@ -122,17 +122,23 @@ strategies:
     description: "Enhanced Market Regime strategy with Mean Reversion"
     parameter_grid:
       rsi_oversold:
-        values: [35 ]          # 2 (slightly tighter range)
+        values: [20, 25]
       rsi_overbought:
-        values: [65]          # 2 (slightly tighter range)
+        values: [75, 80]
       volume_multiplier:
-        values: [ 1.5 ]             # 1 (fixed, worked well)
+        values: [1.5, 1.75]
       max_bars_held:
-        values: [2,3]          # 2 (reduced from 3, 12 was best)
+        values: [10, 16]
       bb_window:
-        values: [ 20 ]              # 1 (fixed, standard value)
+        values: [15, 20]
       stop_atr_multiplier:
-        values: [ 1.0, 2.0]             # 1 (fixed, moderate stop worked)
+        values: [2.5, 3.0]
+      adx_threshold:
+        values: [ 20, 25, 30 ]
+      max_volatility_percentile:
+        values: [ 0.7, 0.8, 0.9 ]
+      respect_sma:
+        values: [ true, false ]
 
   # Output settings
   output:

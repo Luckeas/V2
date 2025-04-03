@@ -416,6 +416,18 @@ class Backtester:
             filepath (str): Path to save the results.
             include_signals (bool, optional): Whether to include signals. Defaults to True.
         """
+
+        # Define a custom JSON encoder for NumPy types
+        class NumpyEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, np.integer):
+                    return int(obj)
+                elif isinstance(obj, np.floating):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                return json.JSONEncoder.default(self, obj)
+
         # Create results dictionary
         results = {
             'strategy_name': self.strategy.name,
@@ -462,8 +474,8 @@ class Backtester:
         if include_signals and self.signals is not None:
             results['signals'] = self.signals.tolist()
 
-        # Save to file
+        # Save to file using the custom encoder
         with open(filepath, 'w') as f:
-            json.dump(results, f, indent=4)
+            json.dump(results, f, indent=4, cls=NumpyEncoder)
 
         print(f"Results saved to {filepath}")
