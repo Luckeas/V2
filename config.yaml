@@ -141,6 +141,27 @@ strategies:
         values: [ 0.7 ]
       respect_sma:
         values: [ true ]
+
+  supply_demand:
+    description: "Supply and Demand Strategy based on market structure, zone identification, and risk-reward filtering"
+    default_params:
+      consolidation_lookback: 3
+      consolidation_threshold: 0.3
+      min_risk_reward_ratio: 2.5
+      stop_loss_buffer: 0.05
+      max_bars_held: 20
+    parameter_grid:
+      consolidation_lookback:
+        values: [ 2,3]
+      consolidation_threshold:
+        values: [ 0.2]
+      min_risk_reward_ratio:
+        values: [ 2.0 ]
+      stop_loss_buffer:
+        values: [ 0.02 ]
+      max_bars_held:
+        values: [ 10]
+
   # Output settings
   output:
     save_results: true
