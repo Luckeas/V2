@@ -17,7 +17,8 @@ class EnhancedMarketRegimeStrategy(Strategy):
                  max_bars_held: int = 16,
                  bb_window: int = 20,
                  stop_atr_multiplier: float = 1.5,
-                 trail_atr_multiplier: float = 2.0):  # New parameter for trailing stop
+                 trail_atr_multiplier: float = 2.0,
+                 adx_threshold: int = 25):  # Added ADX threshold parameter
         super().__init__(name="Enhanced Market Regime Strategy")
         self.parameters = {
             "rsi_oversold": rsi_oversold,
@@ -26,11 +27,17 @@ class EnhancedMarketRegimeStrategy(Strategy):
             "max_bars_held": max_bars_held,
             "bb_window": bb_window,
             "stop_atr_multiplier": stop_atr_multiplier,
-            "trail_atr_multiplier": trail_atr_multiplier  # Add to parameters dictionary
+            "trail_atr_multiplier": trail_atr_multiplier,
+            "adx_threshold": adx_threshold  # Include ADX threshold in parameters
         }
+        # Add a flag to control verbose output
+        self.verbose = False
+
+    def set_progress_callback(self, callback):
+        """Set a callback function to track optimization progress."""
+        self._progress_callback = callback
 
     def compute_returns(self, data: pd.DataFrame, signals: np.ndarray) -> np.ndarray:
-        print(f"Parameters in compute_returns: {self.parameters}")
         data = self._calculate_indicators(data)
         log_returns = np.log(data['close'] / data['close'].shift(1)).fillna(0)
         strategy_returns = np.zeros_like(log_returns)
@@ -39,6 +46,12 @@ class EnhancedMarketRegimeStrategy(Strategy):
         entry_price = 0.0
         highest_high = 0.0
         lowest_low = 0.0
+
+        # Counters for trade statistics
+        total_trades = 0
+        exits_by_max_bars = 0
+        exits_by_stop_loss = 0
+        exits_by_trailing_stop = 0
 
         for i in range(1, len(data) - 1):
             if position != 0:
@@ -49,16 +62,14 @@ class EnhancedMarketRegimeStrategy(Strategy):
                     highest_high = max(highest_high, data['close'].iloc[i])
                     trailing_stop = highest_high - self.parameters['trail_atr_multiplier'] * data['atr'].iloc[i]
                     if data['close'].iloc[i] <= trailing_stop:
-                        print(
-                            f"Bar {i}: Long exited by trailing stop at {data['close'].iloc[i]} (stop: {trailing_stop}, ATR: {data['atr'].iloc[i]})")
                         position = 0
+                        exits_by_trailing_stop += 1
                 elif position < 0:
                     lowest_low = min(lowest_low, data['close'].iloc[i])
                     trailing_stop = lowest_low + self.parameters['trail_atr_multiplier'] * data['atr'].iloc[i]
                     if data['close'].iloc[i] >= trailing_stop:
-                        print(
-                            f"Bar {i}: Short exited by trailing stop at {data['close'].iloc[i]} (stop: {trailing_stop}, ATR: {data['atr'].iloc[i]})")
                         position = 0
+                        exits_by_trailing_stop += 1
 
                 # Fixed stop loss check
                 if position != 0:
@@ -66,28 +77,32 @@ class EnhancedMarketRegimeStrategy(Strategy):
                     stop_loss = entry_price - (position * self.parameters['stop_atr_multiplier'] * atr)
                     if (position > 0 and data['close'].iloc[i] < stop_loss) or \
                             (position < 0 and data['close'].iloc[i] > stop_loss):
-                        print(
-                            f"Bar {i}: Exited by fixed stop at {data['close'].iloc[i]} (stop: {stop_loss}, ATR: {atr})")
                         position = 0
+                        exits_by_stop_loss += 1
                     elif i - entry_bar >= self.parameters['max_bars_held']:
-                        print(
-                            f"Bar {i}: Exited by max_bars_held ({self.parameters['max_bars_held']}) at {data['close'].iloc[i]}")
                         position = 0
-                    else:
-                        print(f"Bar {i}: Position {position} still active, bars held: {i - entry_bar}")
+                        exits_by_max_bars += 1
 
             if position == 0 and signals[i] != 0:
                 position = signals[i]
                 entry_bar = i
                 entry_price = data['close'].iloc[i]
+                total_trades += 1
                 if position > 0:
                     highest_high = data['close'].iloc[i]
                 else:
                     lowest_low = data['close'].iloc[i]
-                print(f"Bar {i}: Entered position {position} at {entry_price}")
 
-        print(
-            f"Total trades executed: {sum(1 for i in range(len(signals)) if signals[i] != 0 and (i == 1 or signals[i - 1] == 0))}")
+        # Print trade statistics at the end, no matter what
+        print("===== Trading Statistics =====")
+        print(f"Total trades executed: {total_trades}")
+        print(f"Exits by max bars held: {exits_by_max_bars}")
+        print(f"Exits by stop loss: {exits_by_stop_loss}")
+        print(f"Exits by trailing stop: {exits_by_trailing_stop}")
+
+        # Add trade count to the metrics when they're calculated
+        self.trade_count = total_trades
+
         return strategy_returns
 
     def _calculate_support_resistance(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -242,7 +257,10 @@ class EnhancedMarketRegimeStrategy(Strategy):
     def generate_signals(self, data: pd.DataFrame, parameters: Dict[str, Any] = None) -> np.ndarray:
         if parameters is not None:
             self.parameters.update(parameters)
-        print(f"Parameters in generate_signals: {self.parameters}")
+        # Keep parameter print but make it conditional
+        if self.verbose:
+            print(f"Parameters in generate_signals: {self.parameters}")
+
         data = self._calculate_indicators(data)
         signals = np.zeros(len(data))
         p = self.parameters
@@ -265,18 +283,26 @@ class EnhancedMarketRegimeStrategy(Strategy):
                     prev_row['open'] < earlier_row['high'] * 0.9995
             )
 
-            if mean_rev_long:
-                signals[i] = 1
-                print(f"Bar {i}: Generated long signal")
-            elif mean_rev_short:
-                signals[i] = -1
-                print(f"Bar {i}: Generated short signal")
+            # Add ADX filter
+            if earlier_row['adx'] < p['adx_threshold']:
+                if mean_rev_long:
+                    signals[i] = 1
+                    # Only print if verbose mode is on
+                    if self.verbose:
+                        print(f"Bar {i}: Generated long signal")
+                elif mean_rev_short:
+                    signals[i] = -1
+                    if self.verbose:
+                        print(f"Bar {i}: Generated short signal")
 
-        print(f"Total signals generated: {sum(signals != 0)}")
+        # Only print summary if verbose mode is on
+        if self.verbose:
+            print(f"Total signals generated: {sum(signals != 0)}")
+
         return signals
 
     def optimize(self, data: pd.DataFrame, objective_func: callable,
-                 parameter_grid: Dict[str, List[Any]]) -> Tuple[Dict[str, Any], float]:
+                 parameter_grid: Dict[str, List[Any]], progress_callback=None) -> Tuple[Dict[str, Any], float]:
         from joblib import Parallel, delayed
         import itertools
         import sys
@@ -317,6 +343,10 @@ class EnhancedMarketRegimeStrategy(Strategy):
             counter.value += 1
             sys.stdout.write(f"\rProgress: {counter.value}/{total} ({counter.value / total * 100:.2f}%)")
             sys.stdout.flush()
+
+            # Call the external progress callback if provided
+            if progress_callback:
+                progress_callback()
 
         # Define function to evaluate a single parameter set
         def evaluate_params(params_tuple, total_combinations, progress_counter):

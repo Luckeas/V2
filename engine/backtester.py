@@ -78,7 +78,7 @@ class Backtester:
         self.signals = self.strategy.generate_signals(train_data, parameters)
 
         # Calculate returns
-        self.returns = self.strategy.compute_returns(train_data, self.signals)
+        self.returns, active_positions = self.strategy.compute_returns(train_data, self.signals)
 
         # Calculate metrics
         self.metrics = {
@@ -90,7 +90,7 @@ class Backtester:
             'total_return': np.exp(np.sum(self.returns)) - 1,
             'win_rate': len(self.returns[self.returns > 0]) / len(self.returns[self.returns != 0]) if len(
                 self.returns[self.returns != 0]) > 0 else 0,
-            'num_trades': np.sum(np.abs(np.diff(self.signals, prepend=0)) > 0)
+            'num_trades': np.sum(np.diff(active_positions, prepend=0) != 0)  # Count actual position changes
         }
 
         return self.metrics
@@ -150,7 +150,8 @@ class Backtester:
             'total_return': np.exp(np.sum(self.returns)) - 1,
             'win_rate': len(self.returns[self.returns > 0]) / len(self.returns[self.returns != 0]) if len(
                 self.returns[self.returns != 0]) > 0 else 0,
-            'num_trades': np.sum(np.abs(np.diff(self.signals, prepend=0)) > 0)
+            'num_trades': self.strategy.trade_count if hasattr(self.strategy, 'trade_count') else np.sum(
+                np.abs(np.diff(self.signals, prepend=0)) > 0)
         }
 
         return self.optimization_results
@@ -268,7 +269,8 @@ class Backtester:
             'calmar_ratio': calmar_ratio(returns),
             'total_return': np.exp(np.sum(returns)) - 1,
             'win_rate': len(returns[returns > 0]) / len(returns[returns != 0]) if len(returns[returns != 0]) > 0 else 0,
-            'num_trades': np.sum(np.abs(np.diff(signals, prepend=0)) > 0)
+            'num_trades': self.strategy.trade_count if hasattr(self.strategy, 'trade_count') else np.sum(
+                np.abs(np.diff(self.signals, prepend=0)) > 0)
         }
 
         # Store walk-forward results

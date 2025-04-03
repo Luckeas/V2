@@ -5,8 +5,6 @@ Main script for running backtests with the four validation steps:
 2. In-sample permutation test
 3. Walk-forward test
 4. Walk-forward permutation test
-
-Added debug statements to ensure results are displayed properly.
 """
 
 import os
@@ -16,8 +14,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 import json
-from pprint import pprint
 import sys
+import time
 
 from utils.config import Config
 from utils.data_loader import DataLoader
@@ -36,6 +34,26 @@ OBJECTIVE_FUNCTIONS = {
 }
 
 
+# Progress tracking function
+def print_progress(current, total, start_time, prefix="Progress"):
+    """Print progress with time estimation."""
+    elapsed = time.time() - start_time
+    percent = 100.0 * current / total if total > 0 else 0
+
+    # Estimate time remaining
+    if current > 0:
+        time_per_item = elapsed / current
+        remaining_items = total - current
+        eta = time_per_item * remaining_items
+        eta_str = f", ETA: {eta:.1f}s" if eta < 120 else f", ETA: {eta / 60:.1f}m"
+    else:
+        eta_str = ""
+
+    print(f"\r{prefix}: {current}/{total} ({percent:.1f}%){eta_str}", end="", flush=True)
+    if current == total:
+        print("", flush=True)  # Add newline at the end
+
+
 # Add to run_backtest.py in the main function
 def main():
     """Main function."""
@@ -51,9 +69,13 @@ def main():
     parser.add_argument('--train_end', type=str, help='End date for training period (YYYY-MM-DD).')
     parser.add_argument('--jobs', type=int, default=-1,
                         help='Number of parallel jobs for permutation test. -1 for all cores.')
+    parser.add_argument('--quiet', action='store_true', help='Reduce verbose output.')
     args = parser.parse_args()
 
-    print("Starting backtest with debug statements...", flush=True)
+    quiet = args.quiet
+
+    if not quiet:
+        print("Starting backtest...")
 
     # Load configuration
     config = Config.load_yaml(args.config)
@@ -72,29 +94,33 @@ def main():
     # Load data
     data_loader = DataLoader()
 
+    # Start timing
+    start_time = time.time()
+
     # Check data type from config
     data_type = config['data'].get('data_type', 'standard')
     if args.mes_data or data_type == 'mes_futures' or 'U19_H25' in data_filepath:
         try:
             data = data_loader.load_mes_futures(data_filepath)
-            print(f"Loaded MES futures data: {len(data)} rows from {data.index[0]} to {data.index[-1]}", flush=True)
+            if not quiet:
+                print(f"Loaded MES futures data: {len(data)} rows")
         except AttributeError:
             # Fallback if method not available
-            print("Warning: load_mes_futures method not found, using standard data loader.", flush=True)
             data = data_loader.load_csv(
                 data_filepath,
                 date_column='datetime',
                 datetime_format=None
             )
-            print(f"Loaded data with standard loader: {len(data)} rows from {data.index[0]} to {data.index[-1]}",
-                  flush=True)
+            if not quiet:
+                print(f"Loaded data with standard loader: {len(data)} rows")
     else:
         data = data_loader.load_csv(
             data_filepath,
             date_column=config['data']['date_column'],
             datetime_format=config['data']['datetime_format']
         )
-        print(f"Loaded standard data: {len(data)} rows from {data.index[0]} to {data.index[-1]}", flush=True)
+        if not quiet:
+            print(f"Loaded standard data: {len(data)} rows")
 
     # Get strategy configuration
     strategy_config = Config.get_strategy_config(config, args.strategy)
@@ -102,13 +128,34 @@ def main():
     # Create strategy instance
     strategy = StrategyFactory.create_strategy(args.strategy, strategy_config.get('default_params'))
 
-    print(f"Created strategy: {strategy.name}", flush=True)
+    if not quiet:
+        print(f"Created strategy: {strategy.name}")
 
     # Create backtester
     backtester = Backtester(strategy, data)
 
     # Get parameter grid
     parameter_grid = Config.get_parameter_grid(strategy_config)
+
+    # Calculate total parameter combinations for progress tracking
+    total_combinations = 1
+    for param, values in parameter_grid.items():
+        total_combinations *= len(values)
+
+    if not quiet:
+        print(f"Total parameter combinations to test: {total_combinations}")
+
+    # Add a counter function to track progress
+    current_combination = [0]  # Use a list for mutability
+
+    # Define a tracking function to be called by the optimization process
+    def track_progress():
+        current_combination[0] += 1
+        print_progress(current_combination[0], total_combinations, start_time, "Optimization progress")
+
+    # Attach the tracking function to the strategy
+    if hasattr(strategy, 'set_progress_callback'):
+        strategy.set_progress_callback(track_progress)
 
     # Get objective function
     objective_func_name = config['validation']['insample']['objective_function']
@@ -123,7 +170,12 @@ def main():
 
     # Run validation steps
     if 1 in steps:
-        print("\n===== Step 1: In-Sample Optimization =====", flush=True)
+        if not quiet:
+            print("\n===== Step 1: In-Sample Optimization =====")
+            print(f"Starting optimization with {total_combinations} parameter combinations...")
+
+        opt_start_time = time.time()
+
         optimization_results = backtester.run_insample_optimization(
             train_start=config['validation']['insample']['train_start'],
             train_end=config['validation']['insample']['train_end'],
@@ -131,16 +183,48 @@ def main():
             objective_func=objective_func
         )
 
-        print(f"Best parameters: {optimization_results['best_params']}", flush=True)
-        print(f"Best {objective_func.__name__}: {optimization_results['best_value']:.4f}", flush=True)
+        opt_elapsed = time.time() - opt_start_time
+        if not quiet:
+            print(f"\nOptimization completed in {opt_elapsed:.2f} seconds")
+
+        print(f"Best parameters: {optimization_results['best_params']}")
+        print(f"Best {objective_func.__name__}: {optimization_results['best_value']:.4f}")
 
         # Plot in-sample performance
         if config['output']['plot_results']:
             backtester.plot_insample_performance()
 
+        # Display correct trade count if available
+        if hasattr(strategy, 'last_trade_count'):
+            # Create corrected metrics
+            corrected_metrics = backtester.metrics.copy()
+            corrected_metrics['num_trades'] = float(strategy.last_trade_count)
+
+            print("\n===== Trading Statistics =====")
+            print(f"Total trades executed: {strategy.last_trade_count}")
+            if hasattr(strategy, 'last_exits_by_max_bars'):
+                print(f"Exits by max bars held: {strategy.last_exits_by_max_bars}")
+            if hasattr(strategy, 'last_exits_by_stop_loss'):
+                print(f"Exits by stop loss: {strategy.last_exits_by_stop_loss}")
+            if hasattr(strategy, 'last_exits_by_trailing_stop'):
+                print(f"Exits by trailing stop: {strategy.last_exits_by_trailing_stop}")
+
+            print("\n===== Performance Metrics =====")
+            for key, value in corrected_metrics.items():
+                print(f"{key.replace('_', ' ').title()}: {value:.4f}")
+        else:
+            # Fallback to original metrics if the strategy doesn't have the last_trade_count attribute
+            print("\n===== Performance Metrics =====")
+            for key, value in backtester.metrics.items():
+                print(f"{key.replace('_', ' ').title()}: {value:.4f}")
+
     if 2 in steps:
-        print("\n===== Step 2: In-Sample Permutation Test =====", flush=True)
-        print("Starting permutation test - this may take some time...", flush=True)
+        if not quiet:
+            print("\n===== Step 2: In-Sample Permutation Test =====")
+
+        perm_start_time = time.time()
+        n_permutations = config['validation']['insample_test']['n_permutations']
+        print(f"Running {n_permutations} permutations...")
 
         try:
             test_results = backtester.run_insample_permutation_test(
@@ -148,36 +232,40 @@ def main():
                 train_end=config['validation']['insample']['train_end'],
                 parameter_grid=parameter_grid,
                 objective_func=objective_func,
-                n_permutations=config['validation']['insample_test']['n_permutations'],
-                show_plot=False, # Force to False regardless of config,
-                n_jobs = args.jobs  # Add this line
-
+                n_permutations=n_permutations,
+                show_plot=False,
+                n_jobs=args.jobs
             )
 
-            print("\nPermutation test completed successfully!", flush=True)
-            print(f"Raw test results: {test_results}", flush=True)
-            print(f"P-value: {test_results['p_value']:.4f}", flush=True)
-            print(f"Real {objective_func.__name__}: {test_results['real_objective']:.4f}", flush=True)
-            print(f"Best parameters: {test_results['best_params']}", flush=True)
+            perm_elapsed = time.time() - perm_start_time
+            if not quiet:
+                print(f"\nPermutation test completed in {perm_elapsed:.2f} seconds")
+
+            print(f"P-value: {test_results['p_value']:.4f}")
+            print(f"Real {objective_func.__name__}: {test_results['real_objective']:.4f}")
 
             # Decision based on p-value
-            threshold = 0.01  # As mentioned in the video
+            threshold = 0.01
             if test_results['p_value'] <= threshold:
-                print(f"PASS: p-value ({test_results['p_value']:.4f}) <= threshold ({threshold})", flush=True)
+                print(f"PASS: p-value ({test_results['p_value']:.4f}) <= threshold ({threshold})")
             else:
-                print(f"FAIL: p-value ({test_results['p_value']:.4f}) > threshold ({threshold})", flush=True)
+                print(f"FAIL: p-value ({test_results['p_value']:.4f}) > threshold ({threshold})")
                 if 3 not in steps and 4 not in steps:
-                    print("Stopping due to failed in-sample permutation test.", flush=True)
+                    print("Stopping due to failed in-sample permutation test.")
                     return
 
         except Exception as e:
-            print(f"ERROR in permutation test: {str(e)}", flush=True)
+            print(f"ERROR in permutation test: {str(e)}")
             import traceback
             traceback.print_exc()
-            print("Continuing with other steps...", flush=True)
+            print("Continuing with other steps...")
 
     if 3 in steps:
-        print("\n===== Step 3: Walk-Forward Optimization =====", flush=True)
+        if not quiet:
+            print("\n===== Step 3: Walk-Forward Optimization =====")
+
+        wf_start_time = time.time()
+
         walkforward_results = backtester.run_walkforward_optimization(
             train_window=config['validation']['walkforward']['train_window'],
             train_interval=config['validation']['walkforward']['train_interval'],
@@ -186,19 +274,51 @@ def main():
             show_optimization_progress=config['validation']['walkforward']['show_optimization_progress']
         )
 
+        wf_elapsed = time.time() - wf_start_time
+        if not quiet:
+            print(f"\nWalk-forward optimization completed in {wf_elapsed:.2f} seconds")
+
         # Print metrics
         metrics = walkforward_results['metrics']
-        print(f"Walk-forward {objective_func.__name__}: {metrics[objective_func.__name__]:.4f}", flush=True)
-        print(f"Walk-forward total return: {metrics['total_return']:.4f}", flush=True)
-        print(f"Walk-forward Sharpe ratio: {metrics['sharpe_ratio']:.4f}", flush=True)
-        print(f"Walk-forward max drawdown: {metrics['max_drawdown']:.4f}", flush=True)
+
+        # Display correct trade count if available for walk-forward test
+        if hasattr(strategy, 'last_trade_count'):
+            # Create corrected walk-forward metrics
+            corrected_metrics = metrics.copy()
+            corrected_metrics['num_trades'] = float(strategy.last_trade_count)
+
+            print("\n===== Walk-Forward Trading Statistics =====")
+            print(f"Total trades executed: {strategy.last_trade_count}")
+            if hasattr(strategy, 'last_exits_by_max_bars'):
+                print(f"Exits by max bars held: {strategy.last_exits_by_max_bars}")
+            if hasattr(strategy, 'last_exits_by_stop_loss'):
+                print(f"Exits by stop loss: {strategy.last_exits_by_stop_loss}")
+            if hasattr(strategy, 'last_exits_by_trailing_stop'):
+                print(f"Exits by trailing stop: {strategy.last_exits_by_trailing_stop}")
+
+            print("\n===== Walk-Forward Performance Metrics =====")
+            for key, value in corrected_metrics.items():
+                print(f"{key.replace('_', ' ').title()}: {value:.4f}")
+        else:
+            # Fallback to original metrics
+            print("\n===== Walk-Forward Performance Metrics =====")
+            print(f"Walk-forward {objective_func.__name__}: {metrics[objective_func.__name__]:.4f}")
+            print(f"Walk-forward total return: {metrics['total_return']:.4f}")
+            print(f"Walk-forward Sharpe ratio: {metrics['sharpe_ratio']:.4f}")
+            print(f"Walk-forward max drawdown: {metrics['max_drawdown']:.4f}")
 
         # Plot walk-forward performance
         if config['output']['plot_results']:
             backtester.plot_walkforward_performance()
 
     if 4 in steps:
-        print("\n===== Step 4: Walk-Forward Permutation Test =====", flush=True)
+        if not quiet:
+            print("\n===== Step 4: Walk-Forward Permutation Test =====")
+
+        wf_perm_start_time = time.time()
+        wf_n_permutations = config['validation']['walkforward_test']['n_permutations']
+        print(f"Running {wf_n_permutations} walk-forward permutations...")
+
         wf_test_results = backtester.run_walkforward_permutation_test(
             train_data_start=config['validation']['walkforward_test']['train_data_start'],
             train_data_end=config['validation']['walkforward_test']['train_data_end'],
@@ -206,26 +326,26 @@ def main():
             test_data_end=config['validation']['walkforward_test']['test_data_end'],
             parameter_grid=parameter_grid,
             objective_func=objective_func,
-            n_permutations=config['validation']['walkforward_test']['n_permutations'],
+            n_permutations=wf_n_permutations,
             show_plot=config['validation']['walkforward_test']['show_plot'],
-            n_jobs=args.jobs  # Add this line
-
+            n_jobs=args.jobs
         )
 
-        print(f"Walk-forward p-value: {wf_test_results['p_value']:.4f}", flush=True)
-        print(f"Walk-forward real {objective_func.__name__}: {wf_test_results['real_objective']:.4f}", flush=True)
+        wf_perm_elapsed = time.time() - wf_perm_start_time
+        if not quiet:
+            print(f"\nWalk-forward permutation test completed in {wf_perm_elapsed:.2f} seconds")
+
+        print(f"Walk-forward p-value: {wf_test_results['p_value']:.4f}")
+        print(f"Walk-forward real {objective_func.__name__}: {wf_test_results['real_objective']:.4f}")
 
         # Decision based on p-value
-        threshold = 0.05  # A bit more lenient as mentioned in the video
+        threshold = 0.05
         if wf_test_results['p_value'] <= threshold:
-            print(f"PASS: walk-forward p-value ({wf_test_results['p_value']:.4f}) <= threshold ({threshold})",
-                  flush=True)
-            print("Strategy is validated and can be considered for live trading.", flush=True)
+            print(f"PASS: walk-forward p-value ({wf_test_results['p_value']:.4f}) <= threshold ({threshold})")
+            print("Strategy is validated and can be considered for live trading.")
         else:
-            print(f"FAIL: walk-forward p-value ({wf_test_results['p_value']:.4f}) > threshold ({threshold})",
-                  flush=True)
-            print("Strategy failed to pass walk-forward permutation test. Not recommended for live trading.",
-                  flush=True)
+            print(f"FAIL: walk-forward p-value ({wf_test_results['p_value']:.4f}) > threshold ({threshold})")
+            print("Strategy failed to pass walk-forward permutation test. Not recommended for live trading.")
 
     # Save results
     if config['output']['save_results']:
@@ -233,15 +353,29 @@ def main():
             results_dir,
             f"{args.strategy}_{timestamp}.json"
         )
+
+        # Update metrics in backtester before saving if we have correct trade count
+        if hasattr(strategy, 'last_trade_count'):
+            backtester.metrics['num_trades'] = float(strategy.last_trade_count)
+
         backtester.save_results(results_filepath)
-        print(f"Results saved to: {results_filepath}", flush=True)
+        print(f"Results saved to: {results_filepath}")
+
+    # Print total elapsed time
+    total_elapsed = time.time() - start_time
+    if total_elapsed < 60:
+        print(f"\nTotal execution time: {total_elapsed:.2f} seconds")
+    else:
+        minutes = int(total_elapsed // 60)
+        seconds = total_elapsed % 60
+        print(f"\nTotal execution time: {minutes} minutes {seconds:.2f} seconds")
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print(f"CRITICAL ERROR: {str(e)}", flush=True)
+        print(f"CRITICAL ERROR: {str(e)}")
         import traceback
 
         traceback.print_exc()
