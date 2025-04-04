@@ -6,6 +6,7 @@ from strategies.donchian_breakout import DonchianBreakout
 from strategies.moving_average_crossover import MovingAverageCrossover
 from strategies.enhanced_market_regime_strategy import EnhancedMarketRegimeStrategy
 from strategies.supply_demand_strategy import SupplyDemandStrategy  # Import the new strategy
+from strategies.enhanced_ema_crossover import EnhancedEMACrossoverStrategy
 
 # Dictionary mapping strategy names to their classes
 STRATEGY_REGISTRY = {
@@ -13,6 +14,7 @@ STRATEGY_REGISTRY = {
     'moving_average_crossover': MovingAverageCrossover,
     'enhanced_market_regime': EnhancedMarketRegimeStrategy,
     'supply_demand': SupplyDemandStrategy,  # Register the new strategy
+    'enhanced_ema_crossover': EnhancedEMACrossoverStrategy,  # Add this line
 }
 
 

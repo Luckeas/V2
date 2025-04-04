@@ -180,7 +180,9 @@ def main():
             train_start=config['validation']['insample']['train_start'],
             train_end=config['validation']['insample']['train_end'],
             parameter_grid=parameter_grid,
-            objective_func=objective_func
+            objective_func=objective_func,
+            n_jobs=args.jobs  # Add this line to pass the jobs parameter
+
         )
 
         opt_elapsed = time.time() - opt_start_time

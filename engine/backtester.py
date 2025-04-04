@@ -99,7 +99,8 @@ class Backtester:
                                   train_start: Union[str, int] = None,
                                   train_end: Union[str, int] = None,
                                   parameter_grid: Dict[str, List[Any]] = None,
-                                  objective_func: Callable = profit_factor) -> Dict[str, Any]:
+                                  objective_func: Callable = profit_factor,
+                                  n_jobs: int = -1) -> Dict[str, Any]:
         """
         Run in-sample optimization (Step 1).
 
@@ -108,6 +109,7 @@ class Backtester:
             train_end (Union[str, int], optional): End of training period. Defaults to None.
             parameter_grid (Dict[str, List[Any]], optional): Grid of parameters to search. Defaults to None.
             objective_func (Callable, optional): Function to maximize during optimization. Defaults to profit_factor.
+            n_jobs (int, optional): Number of jobs for parallel processing. Defaults to -1 (all cores).
 
         Returns:
             Dict[str, Any]: Dictionary with optimization results.
@@ -124,8 +126,8 @@ class Backtester:
         else:
             train_data = self.data
 
-        # Optimize strategy
-        best_params, best_value = self.strategy.optimize(train_data, objective_func, parameter_grid)
+        # Optimize strategy with n_jobs parameter
+        best_params, best_value = self.strategy.optimize(train_data, objective_func, parameter_grid, n_jobs=n_jobs)
 
         # Store optimization results
         self.optimization_results = {
@@ -155,77 +157,6 @@ class Backtester:
         }
 
         return self.optimization_results
-
-    def run_insample_permutation_test(self,
-                                      train_start: Union[str, int] = None,
-                                      train_end: Union[str, int] = None,
-                                      parameter_grid: Dict[str, List[Any]] = None,
-                                      objective_func: Callable = profit_factor,
-                                      n_permutations: int = 1000,
-                                      show_plot: bool = True,
-                                      n_jobs: int = -1) -> Dict[str, Any]:
-        """
-        Run in-sample Monte Carlo permutation test (Step 2) with additional debug output.
-
-        Args:
-            train_start (Union[str, int], optional): Start of training period. Defaults to None.
-            train_end (Union[str, int], optional): End of training period. Defaults to None.
-            parameter_grid (Dict[str, List[Any]], optional): Grid of parameters to search. Defaults to None.
-            objective_func (Callable, optional): Function to maximize during optimization. Defaults to profit_factor.
-            n_permutations (int, optional): Number of permutations. Defaults to 1000.
-            show_plot (bool, optional): Whether to show the plot. Defaults to True.
-            n_jobs (int, optional): Number of jobs for parallel processing. Defaults to -1.
-
-        Returns:
-            Dict[str, Any]: Dictionary with test results.
-        """
-        print("Starting run_insample_permutation_test method in Backtester class...", flush=True)
-
-        if self.data is None:
-            raise ValueError("Data not set. Use set_data() to set the data.")
-
-        # Get training data
-        if train_start is not None and train_end is not None:
-            if isinstance(train_start, str) and isinstance(train_end, str):
-                train_data = self.data.loc[train_start:train_end]
-            else:
-                train_data = self.data.iloc[train_start:train_end]
-        else:
-            train_data = self.data
-
-        print(f"Train data prepared: {len(train_data)} rows from {train_data.index[0]} to {train_data.index[-1]}",
-              flush=True)
-
-        # Run in-sample permutation test
-        print("Calling permutation test function...", flush=True)
-
-        try:
-            p_value, best_params, real_objective, perm_objectives = insample_permutation_test(
-                self.strategy, train_data, objective_func, parameter_grid, n_permutations, show_plot, n_jobs
-            )
-
-            print("Permutation test function returned successfully", flush=True)
-            print(f"P-value: {p_value:.4f}", flush=True)
-            print(f"Real objective: {real_objective:.4f}", flush=True)
-
-            # Store test results
-            self.insample_test_results = {
-                'p_value': p_value,
-                'best_params': best_params,
-                'real_objective': real_objective,
-                'objective_func': objective_func.__name__,
-                'n_permutations': n_permutations,
-                'perm_objectives': perm_objectives
-            }
-
-            print("Results stored in backtester.insample_test_results", flush=True)
-            return self.insample_test_results
-
-        except Exception as e:
-            print(f"ERROR in permutation test: {str(e)}", flush=True)
-            import traceback
-            traceback.print_exc()
-            raise
 
     def run_walkforward_optimization(self,
                                      train_window: Union[int, str] = "4Y",

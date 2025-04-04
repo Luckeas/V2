@@ -162,6 +162,38 @@ strategies:
       max_bars_held:
         values: [10, 30]
 
+  enhanced_ema_crossover:
+    description: "Enhanced EMA Crossover Strategy that combines market regime filtering with EMA crossover entries and exits"
+    default_params:
+      ema_period: 8
+      rsi_oversold: 30
+      rsi_overbought: 70
+      volume_multiplier: 1.5
+      max_bars_held: 16
+      bb_window: 20
+      stop_atr_multiplier: 1.5
+      trail_atr_multiplier: 2.0
+      adx_threshold: 25
+    parameter_grid:
+      ema_period:
+        values: [ 8, 13 ]
+      rsi_oversold:
+        values: [ 25, 30 ]
+      rsi_overbought:
+        values: [ 70, 75 ]
+      volume_multiplier:
+        values: [ 1.5, 2.0 ]
+      max_bars_held:
+        values: [ 16, 25 ]
+      bb_window:
+        values: [ 20 ]
+      stop_atr_multiplier:
+        values: [ 1.5, 2.0 ]
+      trail_atr_multiplier:
+        values: [ 2.0, 3.0 ]
+      adx_threshold:
+        values: [ 25 ]
+
 # Output settings
 output:
   save_results: true
